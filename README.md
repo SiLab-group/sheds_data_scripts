@@ -1,6 +1,11 @@
 # SHEDS scripts
 This repository contains the scripts to read sheds data files. For the complete data with metadata the sav files should be used in R and python.
 
+## Content
+- `sheds_questions_up2025.csv`: contains the question ids over the years, 1 indicating the question occured in the given year
+- `sheds_explore.Rmd`: contains loading of the sav file in R with the metadata and some example graphs
+- `read_sav_example.ipynb`: contains loading of sav file in python with metadata and examples how to access metadata
+
 ## Loading
 
 1. Loading with metadata R:

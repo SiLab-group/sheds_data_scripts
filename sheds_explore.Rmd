@@ -13,8 +13,32 @@ library(scales)       # Number formatting
 library(ggthemes)     # themes
 
 # Read SPSS file
-sheds <- read_sav("/home/amy/tmp/sheds_data/files/SHEDS2025.sav", encoding="UTF-8")
+sheds <- read_sav("/Users/olaf/NAMEfile.sav", encoding="UTF-8")
 head(sheds)
+```
+
+Create function to apply SPSS labels automatically:
+
+```{r}
+# Function to apply SPSS labels automatically
+apply_spss_labels <- function(data, variable_name, spss_data) {
+  # Get the labels from the original SPSS data
+  labels <- attr(spss_data[[variable_name]], "labels")
+  
+  if (is.null(labels)) {
+    # If no labels, return the original values as factors
+    return(factor(data[[variable_name]]))
+  }
+  
+  # In SPSS labels, names are the text labels, values are the codes
+  # So we need to map from codes (values) to text (names)
+  code_to_label <- setNames(names(labels), labels)
+  
+  # Apply the mapping
+  mapped_values <- code_to_label[as.character(data[[variable_name]])]
+  
+  return(mapped_values)
+}
 ```
 
 Checkout basic metrics:
@@ -44,13 +68,13 @@ cat("Finished responses:", total_finished, "\n")
 # Completion rate
 completion_rate <- total_finished / total_respondents * 100
 cat("Completion rate:", round(completion_rate, 1), "%\n")
-
 ```
+
 ```{r}
-# Age distribution
+# Age distribution using SPSS labels
 sheds_clean %>%
   filter(finished == 1) %>%
-  ggplot(aes(x = factor(agegr, labels = c("18-34", "35-54", "55+")))) +
+  ggplot(aes(x = apply_spss_labels(., "agegr", sheds))) +
   geom_bar(fill = "steelblue") +
   labs(title = "Age Distribution of Respondents",
        x = "Age Group", y = "Count") +
@@ -58,13 +82,12 @@ sheds_clean %>%
 ```
 
 ```{r}
-# Gender distribution
+# Gender distribution using SPSS labels
 sheds_clean %>%
   filter(finished == 1) %>%
   count(sex) %>%
   mutate(pct = n/sum(n)*100) %>%
-  ggplot(aes(x = factor(sex, labels = c("Male", "Female", "Other")),
-             y = pct)) +
+  ggplot(aes(x = apply_spss_labels(., "sex", sheds), y = pct)) +
   geom_col(fill = "coral") +
   geom_text(aes(label = sprintf("%.1f%%", pct)), vjust = -0.5) +
   labs(title = "Gender Distribution",
@@ -73,16 +96,11 @@ sheds_clean %>%
 ```
 
 ```{r}
-# Region distribution
+# Region distribution using SPSS labels
 sheds_clean %>%
   filter(finished == 1) %>%
   count(region) %>%
-  mutate(region_name = factor(region,
-                               labels = c("Suisse romande",
-                                         "Alpen und Voralpen",
-                                         "Westmittelland",
-                                         "Ostmittelland",
-                                         "Ticino"))) %>%
+  mutate(region_name = apply_spss_labels(., "region", sheds)) %>%
   ggplot(aes(x = reorder(region_name, n), y = n)) +
   geom_col(fill = "forestgreen") +
   coord_flip() +
@@ -92,12 +110,11 @@ sheds_clean %>%
 ```
 
 ```{r}
-# Ownership status
+# Ownership status using SPSS labels
 sheds_clean %>%
   filter(finished == 1, !is.na(accom1)) %>%
   count(accom1) %>%
-  mutate(status = factor(accom1,
-                         labels = c("Owner", "Tenant", "Cooperative")),
+  mutate(status = apply_spss_labels(., "accom1", sheds),
          pct = n/sum(n)*100) %>%
   ggplot(aes(x = status, y = pct, fill = status)) +
   geom_col() +
@@ -105,18 +122,28 @@ sheds_clean %>%
   labs(title = "Housing Ownership Status",
        x = "Status", y = "Percentage") +
   theme_minimal() +
-  theme(legend.position = "none")
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
 ```{r}
+# Renewable devices using SPSS variable labels
+device_labels <- c(
+  attr(sheds$accom8_1, "label"),
+  attr(sheds$accom8_2, "label"), 
+  attr(sheds$accom8_3, "label"),
+  attr(sheds$accom8_4, "label"),
+  attr(sheds$accom8_5, "label")
+)
+
 renewable_devices <- sheds_clean %>%
   filter(finished == 1) %>%
   summarise(
-    solar_pv = sum(accom8_1 == 1, na.rm = TRUE),
-    solar_thermal = sum(accom8_2 == 1, na.rm = TRUE),
-    heat_pump = sum(accom8_3 == 1, na.rm = TRUE),
-    none = sum(accom8_4 == 1, na.rm = TRUE),
-    do_not_know = sum(accom8_5 == 1, na.rm = TRUE),
+    var1 = sum(accom8_1 == 1, na.rm = TRUE),
+    var2 = sum(accom8_2 == 1, na.rm = TRUE),
+    var3 = sum(accom8_3 == 1, na.rm = TRUE),
+    var4 = sum(accom8_4 == 1, na.rm = TRUE),
+    var5 = sum(accom8_5 == 1, na.rm = TRUE),
     total = n()
   ) %>%
   pivot_longer(cols = -total,
@@ -125,8 +152,8 @@ renewable_devices <- sheds_clean %>%
   mutate(
     percentage = count/total * 100,
     device_type = factor(device_type,
-                        levels = c("solar_pv", "solar_thermal", "heat_pump", "none", "do_not_know"),
-                        labels = c("Solar PV", "Solar Thermal", "Heat Pump", "None", "Don't Know"))
+                        levels = c("var1", "var2", "var3", "var4", "var5"),
+                        labels = device_labels)
   )
 
 print(renewable_devices)
@@ -143,26 +170,16 @@ ggplot(renewable_devices, aes(x = reorder(device_type, -percentage), y = percent
   theme(legend.position = "none",
         axis.text.x = element_text(angle = 45, hjust = 1))
 ```
-Heating sources:
+
+Heating sources using SPSS labels:
 ```{r}
 heating_sources <- sheds_clean %>%
-  filter(finished == 1) %>%
+  filter(finished == 1, !is.na(heat1_1)) %>%
   count(heat1_1) %>%
-  filter(!is.na(heat1_1))
-
+  mutate(source = apply_spss_labels(., "heat1_1", sheds),
+         pct = n/sum(n)*100)
 
 print(heating_sources)
-
-heating_sources <- sheds_clean %>%
-  filter(finished == 1) %>%
-  count(heat1_1) %>%
-  filter(!is.na(heat1_1)) %>%
-  mutate(source = factor(heat1_1,
-                         levels = c(-1, 1, 2, 3, 4, 5, 7, 8),
-                         labels = c("Unknown", "Oil", "Gas", "Electricity",
-                                   "Wood", "Heat pump",
-                                   "District heating", "Other")),
-         pct = n/sum(n)*100)
 
 ggplot(heating_sources, aes(x = reorder(source, pct), y = pct)) +
   geom_col(fill = "orangered") +
@@ -171,6 +188,7 @@ ggplot(heating_sources, aes(x = reorder(source, pct), y = pct)) +
        x = "Energy Source", y = "Percentage") +
   theme_minimal()
 ```
+
 Heating temperature:
 ```{r}
 sheds_clean %>%
@@ -186,6 +204,7 @@ sheds_clean %>%
        x = "Temperature (°C)", y = "Count") +
   theme_minimal()
 ```
+
 Electricity consumption analysis:
 
 ```{r}
@@ -215,6 +234,7 @@ sheds_clean %>%
        x = "Annual Cost (CHF)", y = "Count") +
   theme_minimal()
 ```
+
 Car ownership:
 ```{r}
 car_ownership <- sheds_clean %>%
@@ -242,40 +262,7 @@ ev_adoption <- sheds_clean %>%
 
 print(ev_adoption)
 
-# Public transport usage
-
-pt_tickets <- sheds_clean %>%
-  filter(finished == 1) %>%
-  mutate(
-    has_ga = mob1_1 > 0,
-    has_half_fare = mob1_2 > 0,
-    has_regional = mob1_3 > 0,
-    has_no_tickets = (mob1_1 == 0 | is.na(mob1_1)) &
-                     (mob1_2 == 0 | is.na(mob1_2)) &
-                     (mob1_3 == 0 | is.na(mob1_3))
-  ) %>%
-  summarise(
-    ga_card = sum(has_ga, na.rm = TRUE),
-    half_fare = sum(has_half_fare, na.rm = TRUE),
-    regional = sum(has_regional, na.rm = TRUE),
-    no_tickets = sum(has_no_tickets, na.rm = TRUE),
-    total = n()
-  ) %>%
-  pivot_longer(cols = -total,
-               names_to = "ticket_type",
-               values_to = "count") %>%
-  mutate(percentage = count/total * 100,
-         ticket_type = factor(ticket_type,
-                             levels = c("ga_card", "half_fare", "regional", "no_tickets"),
-                             labels = c("GA Card", "Half-fare", "Regional", "No Tickets")))
-
-ggplot(pt_tickets, aes(x = ticket_type, y = percentage)) +
-  geom_col(fill = "purple") +
-  geom_text(aes(label = sprintf("%.1f%%", percentage)), vjust = -0.5) +
-  labs(title = "Public Transport Ticket Ownership",
-       x = "Ticket Type", y = "Percentage of Households") +
-  theme_minimal()
-
+# Public transport usage with simplified approach
 pt_tickets <- sheds_clean %>%
   filter(finished == 1) %>%
   summarise(
@@ -289,8 +276,7 @@ pt_tickets <- sheds_clean %>%
                values_to = "count") %>%
   mutate(percentage = count/total * 100,
          ticket_type = factor(ticket_type,
-                             labels = c("GA Card", "Half-fare",
-                                       "Regional")))
+                             labels = c("GA Card", "Half-fare", "Regional")))
 
 ggplot(pt_tickets, aes(x = ticket_type, y = percentage)) +
   geom_col(fill = "purple") +
@@ -313,29 +299,41 @@ ggplot(air_travel, aes(x = total_flights)) +
   labs(title = "Air Travel Frequency (Last 12 Months)",
        x = "Number of Flights", y = "Count") +
   theme_minimal()
-
 ```
 
-Climate change concerns:
+Climate change concerns using SPSS labels:
 ```{r}
-# Climate change concern (envpsy3)
-sheds_clean %>%
-  filter(finished == 1, envpsy3 > 0) %>%
+test_labels <- sheds_clean %>%
+  filter(finished == 1, envpsy3 >= 0, !is.na(envpsy3)) %>%
   count(envpsy3) %>%
   mutate(pct = n/sum(n)*100,
-         level = factor(envpsy3,
-                       labels = c("Not at all", "2", "3", "4",
-                                 "Extremely worried"))) %>%
+         level = apply_spss_labels(., "envpsy3", sheds))
+
+print(test_labels)
+
+sheds_clean %>%
+  filter(finished == 1, envpsy3 >= 0, !is.na(envpsy3)) %>%
+  count(envpsy3) %>%
+  mutate(pct = n/sum(n)*100,
+         level = case_when(
+           envpsy3 == 1 ~ "Not at all worried",
+           envpsy3 == 2 ~ "Slightly worried", 
+           envpsy3 == 3 ~ "Moderately worried",
+           envpsy3 == 4 ~ "Very worried",
+           envpsy3 == 5 ~ "Extremely worried",
+           TRUE ~ "Other"
+         )) %>%
   ggplot(aes(x = level, y = pct)) +
   geom_col(fill = "darkred") +
   geom_text(aes(label = sprintf("%.1f%%", pct)), vjust = -0.5) +
   labs(title = "Concern About Global Warming",
        x = "Worry Level", y = "Percentage") +
-  theme_minimal()
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
 Intention to reduce consumption in next 12 months:
- 
+
 ```{r}
 # Planned reduction in energy consumption (psy8)
 
@@ -362,5 +360,3 @@ ggplot(reduction_plans, aes(x = reorder(category, mean_score),
        x = "Category", y = "Mean Score") +
   theme_minimal()
 ```
- 
-
