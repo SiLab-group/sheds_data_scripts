@@ -1,0 +1,366 @@
+---
+title: "General explore sheds data"
+output: html_notebook
+---
+Import libraries
+
+```{r}
+library(haven)        # Read SPSS files
+library(tidyverse)    # Data manipulation and visualization
+library(skimr)        # Summary statistics
+library(corrplot)     # Correlation plots
+library(scales)       # Number formatting
+library(ggthemes)     # themes
+
+# Read SPSS file
+sheds <- read_sav("/home/amy/tmp/sheds_data/files/SHEDS2025.sav", encoding="UTF-8")
+head(sheds)
+```
+
+Checkout basic metrics:
+
+```{r}
+# Convert to tibble and remove labels for easier manipulation
+sheds_clean <- sheds %>%
+  zap_labels() %>%
+  as_tibble()
+
+# Basic overview
+glimpse(sheds_clean)
+skim(sheds_clean)
+
+# Check completion rate
+table(sheds_clean$finished)
+prop.table(table(sheds_clean$finished))
+
+# Total number of respondents (all who started)
+total_respondents <- nrow(sheds_clean)
+cat("Total respondents:", total_respondents, "\n")
+
+# Total finished responses
+total_finished <- sum(sheds_clean$finished == 1, na.rm = TRUE)
+cat("Finished responses:", total_finished, "\n")
+
+# Completion rate
+completion_rate <- total_finished / total_respondents * 100
+cat("Completion rate:", round(completion_rate, 1), "%\n")
+
+```
+```{r}
+# Age distribution
+sheds_clean %>%
+  filter(finished == 1) %>%
+  ggplot(aes(x = factor(agegr, labels = c("18-34", "35-54", "55+")))) +
+  geom_bar(fill = "steelblue") +
+  labs(title = "Age Distribution of Respondents",
+       x = "Age Group", y = "Count") +
+  theme_minimal()
+```
+
+```{r}
+# Gender distribution
+sheds_clean %>%
+  filter(finished == 1) %>%
+  count(sex) %>%
+  mutate(pct = n/sum(n)*100) %>%
+  ggplot(aes(x = factor(sex, labels = c("Male", "Female", "Other")),
+             y = pct)) +
+  geom_col(fill = "coral") +
+  geom_text(aes(label = sprintf("%.1f%%", pct)), vjust = -0.5) +
+  labs(title = "Gender Distribution",
+       x = "Gender", y = "Percentage") +
+  theme_minimal()
+```
+
+```{r}
+# Region distribution
+sheds_clean %>%
+  filter(finished == 1) %>%
+  count(region) %>%
+  mutate(region_name = factor(region,
+                               labels = c("Suisse romande",
+                                         "Alpen und Voralpen",
+                                         "Westmittelland",
+                                         "Ostmittelland",
+                                         "Ticino"))) %>%
+  ggplot(aes(x = reorder(region_name, n), y = n)) +
+  geom_col(fill = "forestgreen") +
+  coord_flip() +
+  labs(title = "Regional Distribution",
+       x = "Region", y = "Count") +
+  theme_minimal()
+```
+
+```{r}
+# Ownership status
+sheds_clean %>%
+  filter(finished == 1, !is.na(accom1)) %>%
+  count(accom1) %>%
+  mutate(status = factor(accom1,
+                         labels = c("Owner", "Tenant", "Cooperative")),
+         pct = n/sum(n)*100) %>%
+  ggplot(aes(x = status, y = pct, fill = status)) +
+  geom_col() +
+  geom_text(aes(label = sprintf("%.1f%%", pct)), vjust = -0.5) +
+  labs(title = "Housing Ownership Status",
+       x = "Status", y = "Percentage") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+```{r}
+renewable_devices <- sheds_clean %>%
+  filter(finished == 1) %>%
+  summarise(
+    solar_pv = sum(accom8_1 == 1, na.rm = TRUE),
+    solar_thermal = sum(accom8_2 == 1, na.rm = TRUE),
+    heat_pump = sum(accom8_3 == 1, na.rm = TRUE),
+    none = sum(accom8_4 == 1, na.rm = TRUE),
+    do_not_know = sum(accom8_5 == 1, na.rm = TRUE),
+    total = n()
+  ) %>%
+  pivot_longer(cols = -total,
+               names_to = "device_type",
+               values_to = "count") %>%
+  mutate(
+    percentage = count/total * 100,
+    device_type = factor(device_type,
+                        levels = c("solar_pv", "solar_thermal", "heat_pump", "none", "do_not_know"),
+                        labels = c("Solar PV", "Solar Thermal", "Heat Pump", "None", "Don't Know"))
+  )
+
+print(renewable_devices)
+
+ggplot(renewable_devices, aes(x = reorder(device_type, -percentage), y = percentage, fill = device_type)) +
+  geom_col() +
+  geom_text(aes(label = sprintf("%.1f%%\n(n=%d)", percentage, count)),
+            vjust = -0.5, size = 3.5) +
+  scale_fill_brewer(palette = "Set2") +
+  labs(title = "Renewable Energy Devices in Accommodations",
+       x = "",
+       y = "Percentage of Households") +
+  theme_minimal() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 45, hjust = 1))
+```
+Heating sources:
+```{r}
+heating_sources <- sheds_clean %>%
+  filter(finished == 1) %>%
+  count(heat1_1) %>%
+  filter(!is.na(heat1_1))
+
+
+print(heating_sources)
+
+heating_sources <- sheds_clean %>%
+  filter(finished == 1) %>%
+  count(heat1_1) %>%
+  filter(!is.na(heat1_1)) %>%
+  mutate(source = factor(heat1_1,
+                         levels = c(-1, 1, 2, 3, 4, 5, 7, 8),
+                         labels = c("Unknown", "Oil", "Gas", "Electricity",
+                                   "Wood", "Heat pump",
+                                   "District heating", "Other")),
+         pct = n/sum(n)*100)
+
+ggplot(heating_sources, aes(x = reorder(source, pct), y = pct)) +
+  geom_col(fill = "orangered") +
+  coord_flip() +
+  labs(title = "Primary Heating Energy Sources",
+       x = "Energy Source", y = "Percentage") +
+  theme_minimal()
+```
+Heating temperature:
+```{r}
+sheds_clean %>%
+  filter(finished == 1, heat7 > 0) %>%
+  ggplot(aes(x = heat7)) +
+  geom_histogram(binwidth = 0.5, fill = "coral", color = "black") +
+  geom_vline(aes(xintercept = mean(heat7, na.rm = TRUE)),
+             color = "red", linetype = "dashed", size = 1) +
+  labs(title = "Distribution of Living Room Heating Temperature",
+       subtitle = paste("Mean:",
+                       round(mean(sheds_clean$heat7, na.rm = TRUE), 1),
+                       "°C"),
+       x = "Temperature (°C)", y = "Count") +
+  theme_minimal()
+```
+Electricity consumption analysis:
+
+```{r}
+elec_stats <- sheds_clean %>%
+  filter(finished == 1, elec8_1 > 0, elec8_1 < 50000) %>%
+  summarise(
+    mean_kwh = mean(elec8_1, na.rm = TRUE),
+    median_kwh = median(elec8_1, na.rm = TRUE),
+    sd_kwh = sd(elec8_1, na.rm = TRUE),
+    mean_cost = mean(elec7_1, na.rm = TRUE),
+    median_cost = median(elec7_1, na.rm = TRUE)
+  )
+
+print(elec_stats)
+
+# Electricity cost distribution
+sheds_clean %>%
+  filter(finished == 1, elec7_1 > 0, elec7_1 < 5000) %>%
+  ggplot(aes(x = elec7_1)) +
+  geom_histogram(bins = 50, fill = "gold", color = "black") +
+  geom_vline(aes(xintercept = median(elec7_1, na.rm = TRUE)),
+             color = "red", linetype = "dashed", linewidth = 1) +
+  labs(title = "Distribution of Annual Electricity Costs",
+       subtitle = paste("Median:",
+                       round(median(sheds_clean$elec7_1, na.rm = TRUE), 0),
+                       "CHF"),
+       x = "Annual Cost (CHF)", y = "Count") +
+  theme_minimal()
+```
+Car ownership:
+```{r}
+car_ownership <- sheds_clean %>%
+  filter(finished == 1, !is.na(mob2_1)) %>%
+  count(mob2_1) %>%
+  mutate(pct = n/sum(n)*100)
+
+ggplot(car_ownership, aes(x = factor(mob2_1), y = pct)) +
+  geom_col(fill = "navy") +
+  geom_text(aes(label = sprintf("%.1f%%", pct)), vjust = -0.5) +
+  labs(title = "Number of Cars per Household",
+       x = "Number of Cars", y = "Percentage") +
+  theme_minimal()
+```
+
+```{r}
+# Electric vehicle adoption (mob3_3 == 8 means electric)
+ev_adoption <- sheds_clean %>%
+  filter(finished == 1, mob2_1 > 0) %>%
+  summarise(
+    total_car_owners = n(),
+    ev_owners = sum(mob3_3 == 8 | mob2_e == 1, na.rm = TRUE),
+    ev_percentage = ev_owners / total_car_owners * 100
+  )
+
+print(ev_adoption)
+
+# Public transport usage
+
+pt_tickets <- sheds_clean %>%
+  filter(finished == 1) %>%
+  mutate(
+    has_ga = mob1_1 > 0,
+    has_half_fare = mob1_2 > 0,
+    has_regional = mob1_3 > 0,
+    has_no_tickets = (mob1_1 == 0 | is.na(mob1_1)) &
+                     (mob1_2 == 0 | is.na(mob1_2)) &
+                     (mob1_3 == 0 | is.na(mob1_3))
+  ) %>%
+  summarise(
+    ga_card = sum(has_ga, na.rm = TRUE),
+    half_fare = sum(has_half_fare, na.rm = TRUE),
+    regional = sum(has_regional, na.rm = TRUE),
+    no_tickets = sum(has_no_tickets, na.rm = TRUE),
+    total = n()
+  ) %>%
+  pivot_longer(cols = -total,
+               names_to = "ticket_type",
+               values_to = "count") %>%
+  mutate(percentage = count/total * 100,
+         ticket_type = factor(ticket_type,
+                             levels = c("ga_card", "half_fare", "regional", "no_tickets"),
+                             labels = c("GA Card", "Half-fare", "Regional", "No Tickets")))
+
+ggplot(pt_tickets, aes(x = ticket_type, y = percentage)) +
+  geom_col(fill = "purple") +
+  geom_text(aes(label = sprintf("%.1f%%", percentage)), vjust = -0.5) +
+  labs(title = "Public Transport Ticket Ownership",
+       x = "Ticket Type", y = "Percentage of Households") +
+  theme_minimal()
+
+pt_tickets <- sheds_clean %>%
+  filter(finished == 1) %>%
+  summarise(
+    ga_card = sum(mob1_1 > 0, na.rm = TRUE),
+    half_fare = sum(mob1_2 > 0, na.rm = TRUE),
+    regional = sum(mob1_3 > 0, na.rm = TRUE),
+    total = n()
+  ) %>%
+  pivot_longer(cols = -total,
+               names_to = "ticket_type",
+               values_to = "count") %>%
+  mutate(percentage = count/total * 100,
+         ticket_type = factor(ticket_type,
+                             labels = c("GA Card", "Half-fare",
+                                       "Regional")))
+
+ggplot(pt_tickets, aes(x = ticket_type, y = percentage)) +
+  geom_col(fill = "purple") +
+  geom_text(aes(label = sprintf("%.1f%%", percentage)), vjust = -0.5) +
+  labs(title = "Public Transport Ticket Ownership",
+       x = "Ticket Type", y = "Percentage of Households") +
+  theme_minimal()
+```
+
+Airplane travel:
+```{r}
+# Airplane travel frequency
+air_travel <- sheds_clean %>%
+  filter(finished == 1) %>%
+  mutate(total_flights = (mob13_1 + mob13_2 + mob13_3 + mob13_4)) %>%
+  filter(!is.na(total_flights))
+
+ggplot(air_travel, aes(x = total_flights)) +
+  geom_bar(fill = "skyblue") +
+  labs(title = "Air Travel Frequency (Last 12 Months)",
+       x = "Number of Flights", y = "Count") +
+  theme_minimal()
+
+```
+
+Climate change concerns:
+```{r}
+# Climate change concern (envpsy3)
+sheds_clean %>%
+  filter(finished == 1, envpsy3 > 0) %>%
+  count(envpsy3) %>%
+  mutate(pct = n/sum(n)*100,
+         level = factor(envpsy3,
+                       labels = c("Not at all", "2", "3", "4",
+                                 "Extremely worried"))) %>%
+  ggplot(aes(x = level, y = pct)) +
+  geom_col(fill = "darkred") +
+  geom_text(aes(label = sprintf("%.1f%%", pct)), vjust = -0.5) +
+  labs(title = "Concern About Global Warming",
+       x = "Worry Level", y = "Percentage") +
+  theme_minimal()
+```
+
+Intention to reduce consumption in next 12 months:
+ 
+```{r}
+# Planned reduction in energy consumption (psy8)
+
+reduction_plans <- sheds_clean %>%
+  filter(finished == 1) %>%
+  summarise(
+    electricity = mean(psy8_1, na.rm = TRUE),
+    heating = mean(psy8_2, na.rm = TRUE),
+    car_usage = mean(psy8_3, na.rm = TRUE),
+    flights = mean(psy8_5, na.rm = TRUE),
+    carbon_footprint = mean(psy8_4, na.rm = TRUE)
+  ) %>%
+  pivot_longer(everything(),
+               names_to = "category",
+               values_to = "mean_score")
+
+ggplot(reduction_plans, aes(x = reorder(category, mean_score),
+                            y = mean_score)) +
+  geom_col(fill = "seagreen") +
+  geom_hline(yintercept = 3, linetype = "dashed", color = "red") +
+  coord_flip() +
+  labs(title = "Intention to Reduce Consumption (Next 12 Months)",
+       subtitle = "Scale: 1=Very unlikely,3=Neiher likely or unlikely 5=Very likely",
+       x = "Category", y = "Mean Score") +
+  theme_minimal()
+```
+ 
+
