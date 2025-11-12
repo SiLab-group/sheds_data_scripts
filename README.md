@@ -6,17 +6,17 @@ This repository contains the scripts to read sheds data files. For the complete 
 - `sheds_explore.Rmd`: contains loading of the sav file in R with the metadata and some example graphs
 - `read_sav_example.ipynb`: contains loading of sav file in python with metadata and examples how to access metadata
 
-## Loading
-
-1. Loading with metadata R:
+## Loading SPSS file
+1. For the loading the library `haven` has to be first installed. After that the file can be loaded:
 ```R
+library(haven)        # Read SPSS files
 sheds <- read_sav("/Users/olaf/NAMEFILE.sav", encoding="UTF-8")
 ```
 
 
-2. Loading with metadata python:
+2. For the reading the file library pyreadstat has to be first installed. Then the the file can be loaded with metadata:
 ```python
-import pyreadstat
+import pyreadstat # Read SPSS files
 import numpy as np
 
 # Example  how to load the file with name
@@ -38,3 +38,7 @@ print("\nColumn labels:", metadata.column_labels)
 print("\nValue labels:", metadata.variable_value_labels)
 
 ```
+
+## Loading Stata file
+
+
