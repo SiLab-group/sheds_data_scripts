@@ -1,0 +1,180 @@
+---
+title: "Longitudinal exploration"
+output: html_notebook
+---
+
+```{r}
+library(haven)        # Read SPSS files
+library(tidyverse)    # Data manipulation and visualization
+library(skimr)        # Summary statistics
+library(corrplot)     # Correlation plots
+library(scales)       # Number formatting
+library(ggthemes)     # themes
+
+
+current_dir <- getwd()
+source(file.path(current_dir,"src","R","utils.R"))
+
+# Define years
+years <- c(2016, 2017, 2018, 2019, 2020, 2021, 2023, 2025)
+#years <- c(2016, 2017, 2018, 2019, 2020, 2021, 2023 )
+
+# Initialize empty list
+waves <- list()
+
+data_path <- "/path/to/data/SHEDS"
+
+# Loop through years
+for (year in years) {
+  file_path <- paste0(data_path, year, ".sav")
+  wave_name <- paste0("w", year)
+
+  cat("Reading", year, "...\n")
+  waves[[wave_name]] <- read_clean_sheds(file_path)
+  cat(nrow(waves[[wave_name]]), "valid respondents\n")
+}
+
+# Find total unique IDs across all waves
+all_ids <- waves %>%
+  map_df(~ select(.x, id)) %>%  # Change 'id' to your actual ID column name
+  pull(id) %>%
+  unique()
+
+cat("\nTotal unique IDs across all waves:", length(all_ids), "\n")
+
+cat("\n=== Summary ===\n")
+cat("Total respondents (all waves):", sum(map_int(waves, nrow)), "\n")
+cat("Total unique IDs:", length(all_ids), "\n")
+cat("Duplicate appearances:", sum(map_int(waves, nrow)) - length(all_ids), "\n")
+
+# To see how many times each ID appears
+id_counts <- waves %>%
+  map_df(~ select(.x, id), .id = "wave") %>%
+  count(id) %>%
+  arrange(desc(n))
+
+cat("\nDistribution of appearances:\n")
+print(table(id_counts$n))
+```
+
+Build car history to see EV ownership over time:
+```{r}
+library(tidyverse)
+library(scales)
+library(knitr)
+
+# Convert waves list keys from "w2016" to "2016"
+all_waves <- setNames(waves, gsub("^w", "", names(waves)))
+
+car_history <- build_car_history(all_waves)
+print(car_history)
+write_csv(car_history, "car_history.csv")
+
+
+# Then run analysis with car history
+results <- bind_rows(
+  analyze_ev_ownership_data(car_history, 2019),
+  analyze_ev_ownership_data(car_history, 2020),
+  analyze_ev_ownership_data(car_history, 2021),
+  analyze_ev_ownership_data(car_history, 2023),
+  analyze_ev_ownership_data(car_history, 2025)
+)
+
+print(results)
+
+# Print summary table
+
+results %>%
+  select(year, n_total, n_car_owners, n_ev_main, n_ev_secondary,
+         n_ev_total, n_hybrid_gas, n_hybrid_diesel, ev_rate_car_owners) %>%
+  mutate(
+    ev_rate_car_owners = percent(ev_rate_car_owners, accuracy = 0.01)
+  ) %>%
+  kable(
+    col.names = c("Year", "N", "Car Own.", "EV Main", "EV 2nd",
+                  "EV Total", "Hybrid Gas", "Hybrid Dies.", "EV Rate"),
+    align = "r",
+    format.args = list(big.mark = ",")
+  ) %>%
+  print()
+
+
+
+# Stacked bars with y-axis
+p2 <- results %>%
+  filter(year >= 2019) %>%
+  select(year, n_ev_total, n_hybrid_gas, n_hybrid_diesel, n_car_owners) %>%
+  mutate(
+    n_hybrid_total = n_hybrid_gas + n_hybrid_diesel,
+    total_electrified = n_ev_total + n_hybrid_total,
+    total_pct = total_electrified / n_car_owners
+  ) %>%
+  select(year, n_ev_total, n_hybrid_total, n_car_owners, total_pct, total_electrified) %>%
+  pivot_longer(cols = c(n_ev_total, n_hybrid_total),
+               names_to = "type",
+               values_to = "count") %>%
+  mutate(
+    type = recode(type,
+                  "n_ev_total" = "Pure Electric",
+                  "n_hybrid_total" = "Hybrid"),
+    type = factor(type, levels = c("Hybrid", "Pure Electric")),
+    percentage = count / n_car_owners
+  )
+
+# Create separate totals dataset (one row per year)
+totals_data <- p2 %>%
+  group_by(year) %>%
+  summarise(total_pct = first(total_pct), .groups = "drop")
+
+
+
+#  Simple line comparison EV vs Hybrid
+p3 <- results %>%
+  filter(year >= 2019) %>%
+  mutate(
+    n_hybrid_total = n_hybrid_gas + n_hybrid_diesel
+  ) %>%
+  select(year, n_ev_total, n_hybrid_total) %>%
+  pivot_longer(-year, names_to = "type", values_to = "count") %>%
+  mutate(
+    type = recode(type,
+                  "n_ev_total" = "Pure Electric",
+                  "n_hybrid_total" = "Hybrid")
+  ) %>%
+  ggplot(aes(x = year, y = count, color = type, group = type)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2.5) +
+  geom_text(aes(label = count),
+            vjust = -1, size = 3, show.legend = FALSE) +
+  scale_color_manual(values = c("Pure Electric" = "#1B5E20", "Hybrid" = "#FF9800")) +
+  scale_x_continuous(breaks = unique(results$year[results$year >= 2019])) +
+  labs(
+    title = "Pure Electric vs Hybrid Adoption Trends",
+    x = NULL,
+    y = "Number of Households",
+    color = NULL
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    plot.title = element_text(face = "bold", size = 12),
+    legend.position = "bottom",
+    panel.grid.minor = element_blank()
+  )
+
+save_plot(p3, file.path(current_dir, "figures"),"ev_vs_hybrid_trend")
+
+# Summary statistics
+cat("EV GROWTH:\n")
+results_clean <- results %>% filter(!is.na(ev_rate_car_owners))
+cat("  2019:", percent(results_clean$ev_rate_car_owners[results_clean$year == 2019], accuracy = 0.01), "\n")
+cat("  2025:", percent(results_clean$ev_rate_car_owners[results_clean$year == 2025], accuracy = 0.01), "\n")
+cat("  Growth:",
+    round(results_clean$ev_rate_car_owners[results_clean$year == 2025] /
+          results_clean$ev_rate_car_owners[results_clean$year == 2019], 1), "x\n\n")
+
+res_2025 <- results %>% filter(year == 2025)
+cat("  Total EVs:", res_2025$n_ev_total, "\n")
+cat("  Main car EVs:", res_2025$n_ev_main, "\n")
+cat("  Secondary EVs:", res_2025$n_ev_secondary, "\n")
+cat("  Total Hybrids:", res_2025$n_hybrid_gas + res_2025$n_hybrid_diesel, "\n")
+```

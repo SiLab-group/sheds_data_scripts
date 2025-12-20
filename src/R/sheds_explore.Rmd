@@ -10,10 +10,13 @@ library(tidyverse)    # Data manipulation and visualization
 library(skimr)        # Summary statistics
 library(corrplot)     # Correlation plots
 library(scales)       # Number formatting
-library(ggthemes)     # themes
+library(ggthemes)     # Themes
 
 # Read SPSS file
-sheds <- read_sav("/Users/olaf/NAMEfile.sav", encoding="UTF-8")
+source(file.path(getwd(),"src","R","utils.R"))
+
+data_path <- "/path/to/data/SHEDS2025.sav"
+sheds <- read_clean_sheds(data_path)
 head(sheds)
 ```
 

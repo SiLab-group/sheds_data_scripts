@@ -1,0 +1,8 @@
+*.nb.html
+*.csv
+*figures/*
+__pycache__/
+.ipynb_*
+.idea/
+src/R/figures
+src/python/figures
