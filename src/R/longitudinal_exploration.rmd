@@ -1,42 +1,35 @@
 ---
-title: "Longitudinal exploration"
+title: "Longitudinal exploration of cars"
 output: html_notebook
 ---
 
 ```{r}
-library(haven)        # Read SPSS files
-library(tidyverse)    # Data manipulation and visualization
-library(skimr)        # Summary statistics
-library(corrplot)     # Correlation plots
-library(scales)       # Number formatting
-library(ggthemes)     # themes
-
+library(haven)
+library(tidyverse)
+library(skimr)
+library(corrplot)
+library(scales)
+library(ggthemes)
+library(kableExtra)
 
 current_dir <- getwd()
 source(file.path(current_dir,"src","R","utils.R"))
 
-# Define years
 years <- c(2016, 2017, 2018, 2019, 2020, 2021, 2023, 2025)
-#years <- c(2016, 2017, 2018, 2019, 2020, 2021, 2023 )
 
-# Initialize empty list
 waves <- list()
 
-data_path <- "/path/to/data/SHEDS"
+data_path <- "/home/amy/tmp/sheds_data/files/SHEDS"
 
-# Loop through years
+waves <- list()
 for (year in years) {
-  file_path <- paste0(data_path, year, ".sav")
-  wave_name <- paste0("w", year)
-
-  cat("Reading", year, "...\n")
+  file_path <- paste0("/home/amy/tmp/sheds_data/files/SHEDS", year, ".sav")
+  wave_name <- as.character(year)
   waves[[wave_name]] <- read_clean_sheds(file_path)
-  cat(nrow(waves[[wave_name]]), "valid respondents\n")
 }
 
-# Find total unique IDs across all waves
 all_ids <- waves %>%
-  map_df(~ select(.x, id)) %>%  # Change 'id' to your actual ID column name
+  map_df(~ select(.x, id)) %>%
   pull(id) %>%
   unique()
 
@@ -47,7 +40,6 @@ cat("Total respondents (all waves):", sum(map_int(waves, nrow)), "\n")
 cat("Total unique IDs:", length(all_ids), "\n")
 cat("Duplicate appearances:", sum(map_int(waves, nrow)) - length(all_ids), "\n")
 
-# To see how many times each ID appears
 id_counts <- waves %>%
   map_df(~ select(.x, id), .id = "wave") %>%
   count(id) %>%
@@ -57,124 +49,735 @@ cat("\nDistribution of appearances:\n")
 print(table(id_counts$n))
 ```
 
-Build car history to see EV ownership over time:
+EV ownership over time using md_708 and history building:
 ```{r}
 library(tidyverse)
 library(scales)
 library(knitr)
 
-# Convert waves list keys from "w2016" to "2016"
-all_waves <- setNames(waves, gsub("^w", "", names(waves)))
+md_708_summary <- bind_rows(
+  lapply(names(waves), function(wave_name) {
+    df <- waves[[wave_name]]
+    tibble(
+      year           = as.integer(wave_name),
+      n_total        = nrow(df),
+      n_population   = if ("md_hhgr" %in% names(df)) sum(df$md_hhgr[df$mob2_1 >= 1 & df$mob2_1 < 90], na.rm = TRUE) else NA_integer_,
+      n_ev_md708     = if ("md_708" %in% names(df)) sum(df$md_708 == 1, na.rm = TRUE) else NA_integer_,
+      n_ev_missing   = if ("md_708" %in% names(df)) sum(is.na(df$md_708)) else NA_integer_,
+      ev_rate_md708  = n_ev_md708 / n_total
+    )
+  })
+) %>%
+  filter(year %in% c(2019, 2020, 2021, 2023, 2025))
 
-car_history <- build_car_history(all_waves)
-print(car_history)
-write_csv(car_history, "car_history.csv")
+md_708_summary %>%
+  mutate(ev_rate_md708 = percent(ev_rate_md708, accuracy = 0.01)) %>%
+  kable(
+    col.names  = c("Year", "N Total", "N Pop.", "N EV (md_708)", "N Missing", "EV Rate"),
+    align       = "r",
+    format.args = list(big.mark = ",")
+  ) %>%
+  print()
+
+stata_car_history <- build_car_history(waves)
 
 
-# Then run analysis with car history
-results <- bind_rows(
-  analyze_ev_ownership_data(car_history, 2019),
-  analyze_ev_ownership_data(car_history, 2020),
-  analyze_ev_ownership_data(car_history, 2021),
-  analyze_ev_ownership_data(car_history, 2023),
-  analyze_ev_ownership_data(car_history, 2025)
+results_stata <- bind_rows(
+  analyze_ev_ownership_data(stata_car_history, 2019, waves),
+  analyze_ev_ownership_data(stata_car_history, 2020, waves ),
+  analyze_ev_ownership_data(stata_car_history, 2021, waves),
+  analyze_ev_ownership_data(stata_car_history, 2023, waves),
+  analyze_ev_ownership_data(stata_car_history, 2025, waves)
 )
 
-print(results)
-
-# Print summary table
-
-results %>%
-  select(year, n_total, n_car_owners, n_ev_main, n_ev_secondary,
+results_stata %>%
+  select(year, n_total, n_car_owner_population, n_car_owners, n_ev_main, n_ev_secondary,
          n_ev_total, n_hybrid_gas, n_hybrid_diesel, ev_rate_car_owners) %>%
-  mutate(
-    ev_rate_car_owners = percent(ev_rate_car_owners, accuracy = 0.01)
-  ) %>%
+  mutate(ev_rate_car_owners = percent(ev_rate_car_owners, accuracy = 0.01)) %>%
   kable(
-    col.names = c("Year", "N", "Car Own.", "EV Main", "EV 2nd",
+    col.names = c("Year", "N", "Pop.", "Car Own.", "EV Main", "EV 2nd",
                   "EV Total", "Hybrid Gas", "Hybrid Dies.", "EV Rate"),
     align = "r",
     format.args = list(big.mark = ",")
   ) %>%
   print()
+```
 
 
+Here we want to see who are the people which have md_708 and who have ev in the car history based on the ids what are the differences.
+Did people responded differently to each questions? or maybe they didnt say the changed vehicles can we track ids from both dataframes and check
+why it differs?
 
-# Stacked bars with y-axis
-p2 <- results %>%
-  filter(year >= 2019) %>%
-  select(year, n_ev_total, n_hybrid_gas, n_hybrid_diesel, n_car_owners) %>%
+Diagnostic: Who is in md_708 vs car history - and why do they differ?
+```{r}
+# For each year, build a per-respondent comparison between the two EV sources
+diagnose_ev_discrepancy <- function(yr) {
+  raw <- waves[[as.character(yr)]] %>%
+    mutate(across(everything(), as.vector)) %>%
+    select(id,
+           any_of("md_708"),
+           any_of("mob2_1"),
+           any_of("mob3_3"),
+           any_of("mob3_change"),
+           any_of("mob2_e")) %>%
+    mutate(
+      md_708      = ifelse("md_708" %in% names(.) & !is.na(md_708) & md_708 %in% c(-1,-2), NA_real_, as.numeric(md_708)),
+      mob3_3      = ifelse(mob3_3 %in% c(-2,-1), NA_real_, as.numeric(mob3_3)),
+      mob3_change = ifelse("mob3_change" %in% names(.) & !is.na(mob3_change) & mob3_change %in% c(-1,-2), NA_real_, as.numeric(mob3_change)),
+      mob2_e      = ifelse("mob2_e" %in% names(.) & !is.na(mob2_e) & mob2_e %in% c(-1,-2), NA_real_, as.numeric(mob2_e))
+    )
+
+hist_yr <- stata_car_history %>%
+    filter(year_wave == yr) %>%
+    mutate(has_ev = as.integer(mob3_3_filled == 8 | mob2_e_filled == 1)) %>%
+    select(id, mob3_3_filled, mob2_e_filled, has_ev)
+
+  joined <- raw %>%
+    left_join(hist_yr, by = "id") %>%
+    mutate(
+      ev_md708   = as.integer(!is.na(md_708) & md_708 == 1),
+      ev_history = as.integer(!is.na(has_ev) & has_ev == 1),
+      group = case_when(
+        ev_md708 == 1 & ev_history == 1  ~ "Both agree: EV",
+        ev_md708 == 0 & ev_history == 0  ~ "Both agree: No EV",
+        ev_md708 == 1 & ev_history == 0  ~ "md_708 only (history missed)",
+        ev_md708 == 0 & ev_history == 1  ~ "History only (md_708 missed)",
+        is.na(ev_md708) & ev_history == 1 ~ "History only (md_708 NA)",
+        ev_md708 == 1 & is.na(ev_history) ~ "md_708 only (not in history)",
+        TRUE                                ~ "Both NA / unclear"
+      )
+    )
+  joined
+}
+
+diag_table <- bind_rows(
+  lapply(c(2019, 2020, 2021, 2023, 2025), function(yr) {
+    d <- diagnose_ev_discrepancy(yr)
+    n_total <- nrow(waves[[as.character(yr)]])
+    bind_rows(
+      d %>% count(group) %>% mutate(year = yr, n_total = n_total),
+      tibble(
+        group = c(
+          "TOTAL: EV in md_708 (all IDs)",
+          "TOTAL: EV in history (all IDs)",
+          "TOTAL: EV in either source (union)",
+          "TOTAL: EV in both sources (intersection)",
+          "TOTAL: md_708 missing & EV via secondary only",
+          "TOTAL: md_708 missing & EV via main only"
+        ),
+        n = c(
+          sum(d$ev_md708   == 1, na.rm = TRUE),
+          sum(d$ev_history == 1, na.rm = TRUE),
+          sum(d$ev_md708 == 1 | d$ev_history == 1, na.rm = TRUE),
+          sum(d$ev_md708 == 1 & d$ev_history == 1, na.rm = TRUE),
+          sum(is.na(d$md_708) & d$mob2_e_filled == 1 & d$mob3_3_filled != 8, na.rm = TRUE),
+          sum(is.na(d$md_708) & d$mob3_3_filled == 8, na.rm = TRUE)
+        ),
+        year    = yr,
+        n_total = n_total
+      )
+    )
+  })
+) %>%
+  mutate(label = sprintf("%d (%.1f%%)", n, n / n_total * 100)) %>%
+  select(group, year, label) %>%
+  pivot_wider(names_from = year, values_from = label, values_fill = "0 (0.0%)") %>%
+  arrange(group)
+
+total_rows <- which(str_detect(diag_table$group, "TOTAL"))
+
+diag_table %>%
+  kable(caption = "Agreement between md_708 and car history by year (joined on IDs)") %>%
+  kable_styling(bootstrap_options = c("striped", "condensed"), full_width = FALSE) %>%
+  row_spec(total_rows, bold = TRUE, background = "#eeeeee")
+```
+
+
+People history says EV but not md708:
+```{r}
+# People md_708 says has EV but history missed
+diag_2025 <- diagnose_ev_discrepancy(2025)
+md708_only <- diag_2025 %>%
+  filter(group == "md_708 only (history missed)") %>%
+  select(id, md_708, mob3_3, mob3_3_filled, mob3_change, mob2_e, mob2_e_filled)
+
+cat("\n--- md_708 says EV, history missed:", nrow(md708_only), "respondents ---\n")
+cat("Did they report a car change (mob3_change)?\n")
+print(table(md708_only$mob3_change, useNA = "always"))
+cat("\nRaw mob3_3 engine type in this wave:\n")
+print(table(md708_only$mob3_3, useNA = "always"))
+cat("\nFilled mob3_3 from history:\n")
+print(table(md708_only$mob3_3_filled, useNA = "always"))
+cat("\nNA mob3_3 (never reported engine type):", sum(is.na(md708_only$mob3_3)), "\n")
+cat("Non-EV engine type in mob3_3 (possible misclassification):",
+    sum(!is.na(md708_only$mob3_3) & !md708_only$mob3_3 %in% 8, na.rm = TRUE), "\n")
+```
+
+```{r}
+# People history says EV but md_708 missed
+history_only <- diag_2025 %>%
+  filter(group == "History only (md_708 missed)") %>%
+  select(id, md_708, mob3_3, mob3_3_filled, mob3_change, mob2_e, mob2_e_filled)
+
+cat("\n--- History says EV, md_708 missed:", nrow(history_only), "respondents ---\n")
+cat("Raw md_708 for these respondents:\n")
+print(table(history_only$md_708, useNA = "always"))
+cat("\nFilled engine type (mob3_3_filled):\n")
+print(table(history_only$mob3_3_filled, useNA = "always"))
+cat("\nEV via secondary vehicle (mob2_e_filled):\n")
+print(table(history_only$mob2_e_filled, useNA = "always"))
+```
+
+
+Discrepancy over time all years:
+```{r}
+# Track discrepancy across all years
+discrepancy_over_time <- bind_rows(
+  lapply(c(2019, 2020, 2021, 2023, 2025), function(yr) {
+    d <- diagnose_ev_discrepancy(yr)
+    d %>% count(group) %>% mutate(year = yr, pct = n / sum(n) * 100)
+  })
+)
+
+discrepancy_over_time %>%
+  filter(!group %in% c("Both agree: No EV", "Both NA / unclear")) %>%
+  ggplot(aes(x = year, y = pct, colour = group, group = group)) +
+  geom_line(linewidth = 1.2) +
+  geom_point(size = 3) +
+  geom_text(aes(label = sprintf("%.1f%%", pct)), vjust = -0.8, size = 3, show.legend = FALSE) +
+  scale_colour_manual(values = c(
+    "Both agree: EV"                 = "#1B5E20",
+    "md_708 only (history missed)"   = "#FF9800",
+    "History only (md_708 missed)"   = "#1565C0",
+    "History only (md_708 NA)"       = "#90CAF9",
+    "md_708 only (not in history)"   = "#FFB74D"
+  )) +
+  scale_y_continuous(labels = label_percent(scale = 1), expand = expansion(mult = c(0, 0.2))) +
+  labs(
+    title    = "Agreement Between md_708 and Car History EV Classification",
+    subtitle = "% of all respondents per wave",
+    x = NULL, y = "% of respondents", colour = NULL
+  ) +
+  theme_publication(base_size = 12)
+```
+
+Plots for household:
+
+```{r}
+bfs_percentage <- read_csv("/home/amy/tmp/repos/sheds_data_analysis/gr-e-11.03.02.01-03.csv", show_col_types = FALSE) %>%
+  rename(year = `Unnamed: 0`) %>%
+  filter(year %in% c(2019, 2020, 2021, 2023, 2025)) %>%
   mutate(
-    n_hybrid_total = n_hybrid_gas + n_hybrid_diesel,
-    total_electrified = n_ev_total + n_hybrid_total,
-    total_pct = total_electrified / n_car_owners
+    hybrid_total = `conventional hybrid` + `plug-in hybrid`,
+    total_vehicles = petrol + diesel + `conventional hybrid` + `plug-in hybrid` + electric + other,
+    ev_pct = (electric / total_vehicles) * 100,
+    hybrid_pct = (hybrid_total / total_vehicles) * 100
   ) %>%
-  select(year, n_ev_total, n_hybrid_total, n_car_owners, total_pct, total_electrified) %>%
-  pivot_longer(cols = c(n_ev_total, n_hybrid_total),
-               names_to = "type",
-               values_to = "count") %>%
+  select(year, ev_pct, hybrid_pct) %>%
+  pivot_longer(-year, names_to = "type", values_to = "percentage") %>%
   mutate(
-    type = recode(type,
-                  "n_ev_total" = "Pure Electric",
-                  "n_hybrid_total" = "Hybrid"),
-    type = factor(type, levels = c("Hybrid", "Pure Electric")),
-    percentage = count / n_car_owners
+    type = recode(type, "ev_pct" = "Pure Electric", "hybrid_pct" = "Hybrid"),
+    source = "FSO (Official)"
   )
 
-# Create separate totals dataset (one row per year)
-totals_data <- p2 %>%
-  group_by(year) %>%
-  summarise(total_pct = first(total_pct), .groups = "drop")
-
-
-
-#  Simple line comparison EV vs Hybrid
-p3 <- results %>%
-  filter(year >= 2019) %>%
+sheds_md708 <- md_708_summary %>%
+  filter(year %in% c(2019, 2020, 2021, 2023, 2025)) %>%
   mutate(
-    n_hybrid_total = n_hybrid_gas + n_hybrid_diesel
+    percentage = (n_ev_md708 / n_total) * 100,
+    type = "Pure Electric",
+    source = "SHEDS (md_708)"
   ) %>%
-  select(year, n_ev_total, n_hybrid_total) %>%
-  pivot_longer(-year, names_to = "type", values_to = "count") %>%
+  select(year, type, percentage, source)
+
+sheds_history <- results_stata %>%
+  filter(year %in% c(2019, 2020, 2021, 2023, 2025)) %>%
+  mutate(n_hybrid_total = n_hybrid_gas + n_hybrid_diesel) %>%
+  select(year, n_ev_main, n_ev_secondary, n_hybrid_total, n_total) %>%
+  pivot_longer(cols = c(n_ev_main, n_ev_secondary, n_hybrid_total),
+               names_to = "type", values_to = "count") %>%
   mutate(
+    percentage = (count / n_total) * 100,
     type = recode(type,
-                  "n_ev_total" = "Pure Electric",
-                  "n_hybrid_total" = "Hybrid")
+                  "n_ev_main" = "Pure Electric (Main)",
+                  "n_ev_secondary" = "Pure Electric (Secondary)",
+                  "n_hybrid_total" = "Hybrid"),
+    source = "SHEDS (History)"
   ) %>%
-  ggplot(aes(x = year, y = count, color = type, group = type)) +
-  geom_line(linewidth = 1) +
-  geom_point(size = 2.5) +
-  geom_text(aes(label = count),
-            vjust = -1, size = 3, show.legend = FALSE) +
-  scale_color_manual(values = c("Pure Electric" = "#1B5E20", "Hybrid" = "#FF9800")) +
-  scale_x_continuous(breaks = unique(results$year[results$year >= 2019])) +
+  select(year, type, percentage, source)
+
+comparison_data_household <- bind_rows(bfs_percentage, sheds_md708, sheds_history) %>%
+  mutate(
+    source = factor(source, levels = c("FSO (Official)", "SHEDS (md_708)", "SHEDS (History)")),
+    type = factor(type, levels = c("Hybrid", "Pure Electric", "Pure Electric (Main)", "Pure Electric (Secondary)"))
+  )
+
+comparison_totals_household <- comparison_data_household %>%
+  group_by(year, source) %>%
+  summarise(total_pct = sum(percentage), .groups = "drop")
+
+p_comparison_household <- comparison_data_household %>%
+  left_join(comparison_totals_household, by = c("year", "source")) %>%
+  ggplot(aes(x = source, y = percentage, fill = type)) +
+  geom_col(position = "stack", width = 0.7) +
+  geom_text(aes(label = sprintf("%.1f%%", percentage)),
+            position = position_stack(vjust = 0.5),
+            size = 3.5, color = "white", fontface = "bold") +
+  geom_text(aes(y = total_pct, label = sprintf("%.1f%%", total_pct)),
+            vjust = -0.5, size = 3.5, fontface = "bold", color = "black") +
+  scale_fill_manual(
+    values = c(
+      "Hybrid" = "#FF9800",
+      "Pure Electric" = "#1B5E20",
+      "Pure Electric (Main)" = "#1B5E20",
+      "Pure Electric (Secondary)" = "#81C784"
+    )
+  ) +
+  scale_y_continuous(limits = c(0, max(comparison_totals_household$total_pct) * 1.15),
+                     breaks = seq(0, 20, 2),
+                     expand = c(0, 0)) +
+  facet_wrap(~ year, nrow = 1) +
   labs(
-    title = "Pure Electric vs Hybrid Adoption Trends",
     x = NULL,
-    y = "Number of Households",
-    color = NULL
+    y = "Percentage (%)",
+    fill = NULL
   ) +
   theme_minimal(base_size = 11) +
   theme(
-    plot.title = element_text(face = "bold", size = 12),
-    legend.position = "bottom",
-    panel.grid.minor = element_blank()
+    plot.title = element_text(face = "bold", size = 16),
+    plot.subtitle = element_text(size = 16),
+    axis.title.y = element_text(size = 10, face = "bold"),
+    axis.text.x = element_text(size = 9, angle = 15, hjust = 1),
+    legend.position = "bottoub/api/dam/assets/23366958/master",
+    legend.text = element_text(size = 16),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(face = "bold", size = 16)
   )
 
-save_plot(p3, file.path(current_dir, "figures"),"ev_vs_hybrid_trend")
+print(p_comparison_household)
+save_plot(p_comparison_household, "bfs_vs_sheds_comparison_household", width = 14, height = 5)
+```
 
-# Summary statistics
-cat("EV GROWTH:\n")
-results_clean <- results %>% filter(!is.na(ev_rate_car_owners))
-cat("  2019:", percent(results_clean$ev_rate_car_owners[results_clean$year == 2019], accuracy = 0.01), "\n")
-cat("  2025:", percent(results_clean$ev_rate_car_owners[results_clean$year == 2025], accuracy = 0.01), "\n")
-cat("  Growth:",
-    round(results_clean$ev_rate_car_owners[results_clean$year == 2025] /
-          results_clean$ev_rate_car_owners[results_clean$year == 2019], 1), "x\n\n")
 
-res_2025 <- results %>% filter(year == 2025)
-cat("  Total EVs:", res_2025$n_ev_total, "\n")
-cat("  Main car EVs:", res_2025$n_ev_main, "\n")
-cat("  Secondary EVs:", res_2025$n_ev_secondary, "\n")
-cat("  Total Hybrids:", res_2025$n_hybrid_gas + res_2025$n_hybrid_diesel, "\n")
+Plots with the population so divided by the members of household:
+```{r}
+bfs_percentage <- read_csv("/home/amy/tmp/repos/sheds_data_analysis/gr-e-11.03.02.01-03.csv", show_col_types = FALSE) %>%
+  rename(year = `Unnamed: 0`) %>%
+  filter(year %in% c(2019, 2020, 2021, 2023, 2025)) %>%
+  mutate(
+    hybrid_total = `conventional hybrid` + `plug-in hybrid`,
+    total_vehicles = petrol + diesel + `conventional hybrid` + `plug-in hybrid` + electric + other,
+    ev_pct = (electric / total_vehicles) * 100,
+    hybrid_pct = (hybrid_total / total_vehicles) * 100
+  ) %>%
+  select(year, ev_pct, hybrid_pct) %>%
+  pivot_longer(-year, names_to = "type", values_to = "percentage") %>%
+  mutate(
+    type = recode(type, "ev_pct" = "Pure Electric", "hybrid_pct" = "Hybrid"),
+    source = "FSO (Official)"
+  )
+
+sheds_md708_pop <- md_708_summary %>%
+  filter(year %in% c(2019, 2020, 2021, 2023, 2025)) %>%
+  #left_join(results_stata %>% select(year, n_population), by = "year") %>%
+  mutate(
+    percentage = (n_ev_md708 / n_population) * 100,
+    type = "Pure Electric",
+    source = "SHEDS (md_708)"
+  ) %>%
+  select(year, type, percentage, source)
+
+sheds_history_pop <- results_stata %>%
+  filter(year %in% c(2019, 2020, 2021, 2023, 2025)) %>%
+  mutate(n_hybrid_total = n_hybrid_gas + n_hybrid_diesel) %>%
+  select(year, n_ev_main, n_ev_secondary, n_hybrid_total, n_car_owner_population) %>%
+  pivot_longer(cols = c(n_ev_main, n_ev_secondary, n_hybrid_total),
+               names_to = "type", values_to = "count") %>%
+  mutate(
+    percentage = (count / n_car_owner_population) * 100,
+    type = recode(type,
+                  "n_ev_main" = "Pure Electric (Main)",
+                  "n_ev_secondary" = "Pure Electric (Secondary)",
+                  "n_hybrid_total" = "Hybrid"),
+    source = "SHEDS (History)"
+  ) %>%
+  select(year, type, percentage, source)
+
+comparison_data_population <- bind_rows(bfs_percentage, sheds_md708_pop, sheds_history_pop) %>%
+  mutate(
+    source = factor(source, levels = c("FSO (Official)", "SHEDS (md_708)", "SHEDS (History)")),
+    type = factor(type, levels = c("Hybrid", "Pure Electric", "Pure Electric (Main)", "Pure Electric (Secondary)"))
+  )
+
+comparison_totals_population <- comparison_data_population %>%
+  group_by(year, source) %>%
+  summarise(total_pct = sum(percentage), .groups = "drop")
+
+p_comparison_population <- comparison_data_population %>%
+  left_join(comparison_totals_population, by = c("year", "source")) %>%
+  ggplot(aes(x = source, y = percentage, fill = type)) +
+  geom_col(position = "stack", width = 0.7) +
+  geom_text(aes(label = sprintf("%.1f%%", percentage)),
+            position = position_stack(vjust = 0.5),
+            size = 3.5, color = "white", fontface = "bold") +
+  geom_text(aes(y = total_pct, label = sprintf("%.1f%%", total_pct)),
+            vjust = -0.5, size = 3.5, fontface = "bold", color = "black") +
+  scale_fill_manual(
+    values = c(
+      "Hybrid" = "#FF9800",
+      "Pure Electric" = "#1B5E20",
+      "Pure Electric (Main)" = "#1B5E20",
+      "Pure Electric (Secondary)" = "#81C784"
+    )
+  ) +
+  scale_y_continuous(limits = c(0, max(comparison_totals_population$total_pct) * 1.15),
+                     breaks = seq(0, 20, 2),
+                     expand = c(0, 0)) +
+  facet_wrap(~ year, nrow = 1) +
+  labs(
+    x = NULL,
+    y = "Percentage (%)",
+    fill = NULL
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    plot.title = element_text(face = "bold", size = 16),
+    plot.subtitle = element_text(size = 16),
+    axis.title.y = element_text(size = 10, face = "bold"),
+    axis.text.x = element_text(size = 9, angle = 15, hjust = 1),
+    legend.position = "bottom",
+    legend.text = element_text(size = 16),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(face = "bold", size = 16)
+  )
+
+print(p_comparison_population)
+save_plot(p_comparison_population, "bfs_vs_sheds_comparison_population", width = 14, height = 5)
+```
+
+
+
+Who are the people which have EV md_708 and people who are in the SHEDS history whats the difference?
+```{r}
+waves[["2025"]] %>%
+  select(mob3_3) %>%
+  mutate(mob3_3_raw = haven::as_factor(mob3_3)) %>%
+  count(mob3_3, mob3_3_raw) %>%
+  arrange(mob3_3)
+```
+
+Population just ev:
+```{r}
+# --- BFS: EV only ---
+bfs_percentage_ev <- read_csv("/home/amy/tmp/repos/sheds_data_analysis/gr-e-11.03.02.01-03.csv",
+                               show_col_types = FALSE) %>%
+  rename(year = `Unnamed: 0`) %>%
+  filter(year %in% c(2019, 2020, 2021, 2023, 2025)) %>%
+  mutate(
+    total_vehicles = petrol + diesel + `conventional hybrid` + `plug-in hybrid` + electric + other,
+    ev_pct         = (electric / total_vehicles) * 100
+  ) %>%
+  select(year, ev_pct) %>%
+  pivot_longer(-year, names_to = "type", values_to = "percentage") %>%
+  mutate(
+    type   = recode(type, "ev_pct" = "Pure Electric"),
+    source = "FSO (Official)"
+  )
+
+# --- SHEDS md_708: EV only (unchanged, already no hybrid) ---
+sheds_md708_pop_ev <- md_708_summary %>%
+  filter(year %in% c(2019, 2020, 2021, 2023, 2025)) %>%
+  mutate(
+    percentage = (n_ev_md708 / n_population) * 100,
+    type       = "Pure Electric",
+    source     = "SHEDS (md_708)"
+  ) %>%
+  select(year, type, percentage, source)
+
+# --- SHEDS history: EV only (drop n_hybrid_total) ---
+sheds_history_pop_ev <- results_stata %>%
+  filter(year %in% c(2019, 2020, 2021, 2023, 2025)) %>%
+  select(year, n_ev_main, n_ev_secondary, n_car_owner_population) %>%
+  pivot_longer(cols = c(n_ev_main, n_ev_secondary),
+               names_to = "type", values_to = "count") %>%
+  mutate(
+    percentage = (count / n_car_owner_population) * 100,
+    type       = recode(type,
+                        "n_ev_main"       = "Pure Electric (Main)",
+                        "n_ev_secondary"  = "Pure Electric (Secondary)"),
+    source     = "SHEDS (History)"
+  ) %>%
+  select(year, type, percentage, source)
+
+# --- Combine & plot ---
+comparison_data_population_ev <- bind_rows(
+  bfs_percentage_ev, sheds_md708_pop_ev, sheds_history_pop_ev
+) %>%
+  mutate(
+    source = factor(source, levels = c("FSO (Official)", "SHEDS (md_708)", "SHEDS (History)")),
+    type   = factor(type,   levels = c("Pure Electric", "Pure Electric (Main)", "Pure Electric (Secondary)"))
+  )
+
+comparison_totals_population_ev <- comparison_data_population_ev %>%
+  group_by(year, source) %>%
+  summarise(total_pct = sum(percentage), .groups = "drop")
+
+p_comparison_population_ev <- comparison_data_population_ev %>%
+  left_join(comparison_totals_population_ev, by = c("year", "source")) %>%
+  ggplot(aes(x = source, y = percentage, fill = type)) +
+  geom_col(position = "stack", width = 0.7) +
+  geom_text(aes(label = sprintf("%.1f%%", percentage)),
+            position = position_stack(vjust = 0.5),
+            size = 3.5, color = "white", fontface = "bold") +
+  geom_text(aes(y = total_pct, label = sprintf("%.1f%%", total_pct)),
+            vjust = -0.5, size = 3.5, fontface = "bold", color = "black") +
+  scale_fill_manual(
+    values = c(
+      "Pure Electric"             = "#1B5E20",
+      "Pure Electric (Main)"      = "#1B5E20",
+      "Pure Electric (Secondary)" = "#81C784"
+    )
+  ) +
+  scale_y_continuous(
+    limits = c(0, max(comparison_totals_population_ev$total_pct) * 1.15),
+    breaks = seq(0, 20, 2),
+    expand = c(0, 0)
+  ) +
+  facet_wrap(~ year, nrow = 1) +
+  labs(x = NULL, y = "Percentage (%)", fill = NULL) +
+  theme_minimal(base_size = 11) +
+  theme(
+    plot.title        = element_text(face = "bold", size = 16),
+    axis.title.y      = element_text(size = 10, face = "bold"),
+    axis.text.x       = element_text(size = 9, angle = 15, hjust = 1),
+    legend.position   = "bottom",
+    legend.text       = element_text(size = 16),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor  = element_blank(),
+    strip.text        = element_text(face = "bold", size = 16)
+  )
+
+print(p_comparison_population_ev)
+save_plot(p_comparison_population_ev, "bfs_vs_sheds_comparison_population_ev", width = 14, height = 5)
+```
+
+
+Household ev new:
+
+```{r}
+# --- BFS: EV only ---
+bfs_percentage_ev <- read_csv("/home/amy/tmp/repos/sheds_data_analysis/gr-e-11.03.02.01-03.csv",
+                               show_col_types = FALSE) %>%
+  rename(year = `Unnamed: 0`) %>%
+  filter(year %in% c(2019, 2020, 2021, 2023, 2025)) %>%
+  mutate(
+    total_vehicles = petrol + diesel + `conventional hybrid` + `plug-in hybrid` + electric + other,
+    ev_pct         = (electric / total_vehicles) * 100
+  ) %>%
+  select(year, ev_pct) %>%
+  pivot_longer(-year, names_to = "type", values_to = "percentage") %>%
+  mutate(
+    type   = recode(type, "ev_pct" = "Pure Electric"),
+    source = "FSO (Official)"
+  )
+
+# --- SHEDS md_708: EV only (unchanged, already no hybrid) ---
+sheds_md708_ev <- md_708_summary %>%
+  filter(year %in% c(2019, 2020, 2021, 2023, 2025)) %>%
+  mutate(
+    percentage = (n_ev_md708 / n_total) * 100,
+    type       = "Pure Electric",
+    source     = "SHEDS (md_708)"
+  ) %>%
+  select(year, type, percentage, source)
+
+# --- SHEDS history: EV only (drop n_hybrid_total) ---
+sheds_history_ev <- results_stata %>%
+  filter(year %in% c(2019, 2020, 2021, 2023, 2025)) %>%
+  select(year, n_ev_main, n_ev_secondary, n_total) %>%
+  pivot_longer(cols = c(n_ev_main, n_ev_secondary),
+               names_to = "type", values_to = "count") %>%
+  mutate(
+    percentage = (count / n_total) * 100,
+    type       = recode(type,
+                        "n_ev_main"      = "Pure Electric (Main)",
+                        "n_ev_secondary" = "Pure Electric (Secondary)"),
+    source     = "SHEDS (History)"
+  ) %>%
+  select(year, type, percentage, source)
+
+# --- Combine & plot ---
+comparison_data_household_ev <- bind_rows(
+  bfs_percentage_ev, sheds_md708_ev, sheds_history_ev
+) %>%
+  mutate(
+    source = factor(source, levels = c("FSO (Official)", "SHEDS (md_708)", "SHEDS (History)")),
+    type   = factor(type,   levels = c("Pure Electric", "Pure Electric (Main)", "Pure Electric (Secondary)"))
+  )
+
+comparison_totals_household_ev <- comparison_data_household_ev %>%
+  group_by(year, source) %>%
+  summarise(total_pct = sum(percentage), .groups = "drop")
+
+p_comparison_household_ev <- comparison_data_household_ev %>%
+  left_join(comparison_totals_household_ev, by = c("year", "source")) %>%
+  ggplot(aes(x = source, y = percentage, fill = type)) +
+  geom_col(position = "stack", width = 0.7) +
+  geom_text(aes(label = sprintf("%.1f%%", percentage)),
+            position = position_stack(vjust = 0.5),
+            size = 3.5, color = "white", fontface = "bold") +
+  geom_text(aes(y = total_pct, label = sprintf("%.1f%%", total_pct)),
+            vjust = -0.5, size = 3.5, fontface = "bold", color = "black") +
+  scale_fill_manual(
+    values = c(
+      "Pure Electric"             = "#1B5E20",
+      "Pure Electric (Main)"      = "#1B5E20",
+      "Pure Electric (Secondary)" = "#81C784"
+    )
+  ) +
+  scale_y_continuous(
+    limits = c(0, max(comparison_totals_household_ev$total_pct) * 1.15),
+    breaks = seq(0, 20, 2),
+    expand = c(0, 0)
+  ) +
+  facet_wrap(~ year, nrow = 1) +
+  labs(x = NULL, y = "Percentage (%)", fill = NULL) +
+  theme_minimal(base_size = 11) +
+  theme(
+    plot.title         = element_text(face = "bold", size = 16),
+    axis.title.y       = element_text(size = 10, face = "bold"),
+    axis.text.x        = element_text(size = 9, angle = 15, hjust = 1),
+    legend.position    = "bottom",
+    legend.text        = element_text(size = 16),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor   = element_blank(),
+    strip.text         = element_text(face = "bold", size = 16)
+  )
+
+print(p_comparison_household_ev)
+save_plot(p_comparison_household_ev, "bfs_vs_sheds_comparison_household_ev", width = 14, height = 5)
+```
+
+New data graph:
+```{r}
+bfs_percentage <- read_csv("/home/amy/tmp/repos/sheds_data_analysis/gr-e-11.03.02.01-03_new.csv",
+                           show_col_types = FALSE) %>%
+  rename(
+    year    = `Unnamed: 0`,
+    petrol  = `petrol (incl. hybrid electric vehicle, HEV)`,
+    diesel  = `diesel (incl. hybrid electric vehicle, HEV)`,
+    phev    = `plug-in hybrid electric vehicle (PHEV)`,
+    bev     = `battery electric vehicle (BEV)`
+  ) %>%
+  filter(year %in% c(2019, 2020, 2021, 2023, 2025)) %>%
+  mutate(
+    hybrid_total   = phev,
+    total_vehicles = petrol + diesel + phev + bev + other,
+    ev_pct         = (bev  / total_vehicles) * 100,
+    hybrid_pct     = (phev / total_vehicles) * 100
+  )
+
+print(bfs_percentage)
+```
+
+EV new population:
+```{r}
+# --- BFS new file: EV only ---
+bfs_percentage_new_ev <- read_csv("/home/amy/tmp/repos/sheds_data_analysis/gr-e-11.03.02.01-03_new.csv",
+                                   show_col_types = FALSE) %>%
+  rename(
+    year   = `Unnamed: 0`,
+    petrol = `petrol (incl. hybrid electric vehicle, HEV)`,
+    diesel = `diesel (incl. hybrid electric vehicle, HEV)`,
+    phev   = `plug-in hybrid electric vehicle (PHEV)`,
+    bev    = `battery electric vehicle (BEV)`
+  ) %>%
+  filter(year %in% c(2019, 2020, 2021, 2023, 2025)) %>%
+  mutate(
+    total_vehicles = petrol + diesel + phev + bev + other,
+    ev_pct         = (bev / total_vehicles) * 100
+  ) %>%
+  select(year, ev_pct) %>%
+  pivot_longer(-year, names_to = "type", values_to = "percentage") %>%
+  mutate(
+    type   = recode(type, "ev_pct" = "Pure Electric"),
+    source = "FSO (Official)"
+  )
+
+# --- SHEDS md_708: EV only ---
+sheds_md708_pop_ev <- md_708_summary %>%
+  filter(year %in% c(2019, 2020, 2021, 2023, 2025)) %>%
+  mutate(
+    percentage = (n_ev_md708 / n_population) * 100,
+    type       = "Pure Electric",
+    source     = "SHEDS (md_708)"
+  ) %>%
+  select(year, type, percentage, source)
+
+# --- SHEDS history: EV only ---
+sheds_history_pop_ev <- results_stata %>%
+  filter(year %in% c(2019, 2020, 2021, 2023, 2025)) %>%
+  select(year, n_ev_main, n_ev_secondary, n_car_owner_population) %>%
+  pivot_longer(cols = c(n_ev_main, n_ev_secondary),
+               names_to = "type", values_to = "count") %>%
+  mutate(
+    percentage = (count / n_car_owner_population) * 100,
+    type       = recode(type,
+                        "n_ev_main"      = "Pure Electric (Main)",
+                        "n_ev_secondary" = "Pure Electric (Secondary)"),
+    source     = "SHEDS (History)"
+  ) %>%
+  select(year, type, percentage, source)
+
+# --- Combine & plot ---
+comparison_data_population_new_ev <- bind_rows(
+  bfs_percentage_new_ev, sheds_md708_pop_ev, sheds_history_pop_ev
+) %>%
+  mutate(
+    source = factor(source, levels = c("FSO (Official)", "SHEDS (md_708)", "SHEDS (History)")),
+    type   = factor(type,   levels = c("Pure Electric", "Pure Electric (Main)", "Pure Electric (Secondary)"))
+  )
+
+comparison_totals_population_new_ev <- comparison_data_population_new_ev %>%
+  group_by(year, source) %>%
+  summarise(total_pct = sum(percentage), .groups = "drop")
+
+p_comparison_population_new_ev <- comparison_data_population_new_ev %>%
+  left_join(comparison_totals_population_new_ev, by = c("year", "source")) %>%
+  ggplot(aes(x = source, y = percentage, fill = type)) +
+  geom_col(position = "stack", width = 0.7) +
+  geom_text(aes(label = sprintf("%.1f%%", percentage)),
+            position = position_stack(vjust = 0.5),
+            size = 3.5, color = "white", fontface = "bold") +
+  geom_text(aes(y = total_pct, label = sprintf("%.1f%%", total_pct)),
+            vjust = -0.5, size = 3.5, fontface = "bold", color = "black") +
+  scale_fill_manual(
+    values = c(
+      "Pure Electric"             = "#1B5E20",
+      "Pure Electric (Main)"      = "#1B5E20",
+      "Pure Electric (Secondary)" = "#81C784"
+    )
+  ) +
+  scale_y_continuous(
+    limits = c(0, max(comparison_totals_population_new_ev$total_pct) * 1.15),
+    breaks = seq(0, 20, 2),
+    expand = c(0, 0)
+  ) +
+  facet_wrap(~ year, nrow = 1) +
+  labs(x = NULL, y = "Percentage (%)", fill = NULL) +
+  theme_minimal(base_size = 11) +
+  theme(
+    plot.title         = element_text(face = "bold", size = 16),
+    axis.title.y       = element_text(size = 10, face = "bold"),
+    axis.text.x        = element_text(size = 9, angle = 15, hjust = 1),
+    legend.position    = "bottom",
+    legend.text        = element_text(size = 16),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor   = element_blank(),
+    strip.text         = element_text(face = "bold", size = 16)
+  )
+
+print(p_comparison_population_new_ev)
+save_plot(p_comparison_population_new_ev, "bfs_vs_sheds_comparison_population_new_ev", width = 14, height = 5)
 ```

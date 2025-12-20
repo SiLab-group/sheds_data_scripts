@@ -1,0 +1,320 @@
+---
+title: "WEMF Regions map"
+output: html_notebook
+---
+
+Displaying the language regions in SHEDS ( https://wemf.ch/media/wemf.ch/media/wemf-gebiete_2017.pdf?redirect=true)
+Display map:
+```{r}
+# WEMF Regions Map for Switzerland with bfsMaps package
+# Source: https://wemf.ch/media/wemf.ch/media/wemf-gebiete_2017.pdf
+
+library(dplyr)
+library(ggplot2)
+library(sf)
+library(bfsMaps)
+
+current_dir <- getwd()
+# Set your bfsMaps data path
+source(file.path(current_dir,"src","R","utils.R"))
+options(bfsMaps.base="/home/amy/MapData/2022_GEOM_TK")
+
+
+# WEMF Region definitions
+# 1 Suisse romande     (Zones 11-16)
+# 2 Alpen und Voralpen (Zones 21-29)
+# 3 Westmittelland     (Zones 31-34)
+# 4 Ostmittelland      (Zones 41-44)
+# 5 Svizzera italiana Ticino (Zone 51)
+# 6 Liechtenstein      (Zone 61) - not in BFS data
+
+wemf_regions <- data.frame(
+  region_id = 1:5,
+  region_name = c("Suisse romande", "Alpen und Voralpen", "Westmittelland",
+                  "Ostmittelland", "Svizzera italiana"),
+  stringsAsFactors = FALSE
+)
+
+
+wemf_mapping <- tribble(
+  ~name, ~region_id,
+
+  # REGION 1: SUISSE ROMANDE
+  # Zone 11: Genève
+  "Cant. de Genève", 1,
+
+  # Zone 12: Vaud
+  "Aigle", 1,
+  "Broye-Vully", 1,
+  "Gros-de-Vaud", 1,
+  "Jura-Nord vaudois", 1,
+  "Lausanne", 1,
+  "Lavaux-Oron", 1,
+  "Morges", 1,
+  "Nyon", 1,
+  "Ouest lausannois", 1,
+  "Riviera-Pays-d'Enhaut", 1,
+
+  # Zone 13: Neuchâtel
+  "Cant. de Neuchâtel", 1,
+  "Boudry", 1,
+  "Val-de-Ruz", 1,
+  "Val-de-Travers", 1,
+  "La Chaux-de-Fonds", 1,
+  "Le Locle", 1,
+
+  # Zone 14: Jura
+  "Delémont", 1,
+  "Porrentruy", 1,
+  "Les Franches-Montagnes", 1,
+  "Jura bernois", 1,
+
+  # Zone 15: Fribourg
+  "La Broye", 1,
+  "La Glâne", 1,
+  "La Gruyère", 1,
+  "La Sarine", 1,
+  "See / Lac", 1,
+  "Sense", 1,
+  "La Veveyse", 1,
+
+  # Zone 16: Bas-Valais
+  "Monthey", 1,
+  "Saint-Maurice", 1,
+  "Martigny", 1,
+  "Entremont", 1,
+  "Conthey", 1,
+  "Sion", 1,
+  "Hérens", 1,
+  "Sierre", 1,
+
+  # REGION 2: ALPEN UND VORALPEN
+  # Zone 21: Luzern / OW / NW
+  "Luzern-Stadt", 2,
+  "Luzern-Land", 2,
+  "Hochdorf", 2,
+  "Sursee", 2,
+  "Willisau", 2,
+  "Entlebuch", 2,
+  "Kt. Obwalden", 2,
+  "Kt. Nidwalden", 2,
+
+  # Zone 22: Berner Oberland
+  "Thun", 2,
+  "Frutigen-Niedersimmental", 2,
+  "Interlaken-Oberhasli", 2,
+  "Obersimmental-Saanen", 2,
+
+  # Zone 23: Oberwallis
+  "Leuk", 2,
+  "Raron", 2,
+  "Visp", 2,
+  "Brig", 2,
+  "Goms", 2,
+
+  # Zone 24: Zug
+  "Kt. Zug", 2,
+
+  # Zone 25: Uri / Schwyz
+  "Kt. Uri", 2,
+  "Schwyz", 2,
+  "Gersau", 2,
+  "Küssnacht (SZ)", 2,
+  "Einsiedeln", 2,
+  "March", 2,
+  "Höfe", 2,
+
+  # Zone 26: St. Gallen / AI / AR
+  "St. Gallen", 2,
+  "Rorschach", 2,
+  "Rheintal", 2,
+  "Werdenberg", 2,
+  "Sarganserland", 2,
+  "See-Gaster", 2,
+  "Toggenburg", 2,
+  "Wil", 2,
+  "Hinterland", 2,
+  "Mittelland", 2,
+  "Vorderland", 2,
+  "Kt. Appenzell i.Rh.", 2,
+
+  # Zone 27: Glarus / Obersee
+  "Kt. Glarus", 2,
+
+  # Zone 28: Bündner Unterland
+  "Imboden", 2,
+  "Landquart", 2,
+  "Plessur", 2,
+  "Prättigau/Davos", 2,
+
+  # Zone 29: Bündner Oberland
+  "Surselva", 2,
+  "Albula", 2,
+  "Viamala", 2,
+  "Maloja", 2,
+  "Engiadina Bassa/Val Müstair", 2,
+  "Bernina", 2,
+
+  # REGION 3: WESTMITTELLAND
+  # Zone 31: Basel
+  "Kt. Basel-Stadt", 3,
+  "Arlesheim", 3,
+  "Liestal", 3,
+  "Laufen", 3,
+  "Sissach", 3,
+  "Waldenburg", 3,
+  "Dorneck", 3,
+  "Thierstein", 3,
+  "Thal", 3,
+
+  # Zone 32: Solothurn
+  "Solothurn", 3,
+  "Lebern", 3,
+  "Bucheggberg", 3,
+  "Wasseramt", 3,
+  "Gäu", 3,
+  "Gösgen", 3,
+  "Olten", 3,
+  "Zofingen", 3,
+
+  # Zone 33: Berner Seeland
+  "Biel/Bienne", 3,
+  "Seeland", 3,
+
+  # Zone 34: Berner Mittelland
+  "Bern-Mittelland", 3,
+  "Emmental", 3,
+  "Oberaargau", 3,
+
+  # REGION 4: OSTMITTELLAND
+  # Zone 41: Aargau ( from Bern)
+  "Aarau", 4,
+  "Baden", 4,
+  "Bremgarten", 4,
+  "Brugg", 4,
+  "Kulm", 4,
+  "Laufenburg", 4,
+  "Lenzburg", 4,
+  "Muri", 4,
+  "Rheinfelden", 4,
+  "Zurzach", 4,
+
+  # Zone 42: Schaffhausen
+  "Schaffhausen", 4,
+  "Stein", 4,
+  "Reiat", 4,
+  "Oberklettgau", 4,
+  "Unterklettgau", 4,
+  "Schleitheim", 4,
+
+  # Zone 43: Zürich
+  "Zürich", 4,
+  "Affoltern", 4,
+  "Andelfingen", 4,
+  "Bülach", 4,
+  "Dielsdorf", 4,
+  "Dietikon", 4,
+  "Hinwil", 4,
+  "Horgen", 4,
+  "Meilen", 4,
+  "Pfäffikon", 4,
+  "Uster", 4,
+  "Winterthur", 4,
+
+  # Zone 44: Thurgau
+  "Arbon", 4,
+  "Frauenfeld", 4,
+  "Kreuzlingen", 4,
+  "Münchwilen", 4,
+  "Weinfelden", 4,
+
+  # REGION 5: SVIZZERA ITALIANA
+  # Zone 51: Ticino (+ Moesa from Graubünden)
+  "Bellinzona", 5,
+  "Blenio", 5,
+  "Leventina", 5,
+  "Locarno", 5,
+  "Lugano", 5,
+  "Mendrisio", 5,
+  "Riviera", 5,
+  "Vallemaggia", 5,
+  "Moesa", 5      # Italian-speaking part of Graubünden
+)
+
+wemf_region_colors <- c(
+  "1" = "#F4A5A7",  # Suisse romande - Pastel pink/red
+  "2" = "#A8C5E2",  # Alpen und Voralpen - Pastel blue
+  "3" = "#A8D5A2",  # Westmittelland - Pastel green
+  "4" = "#C5B3D9",  # Ostmittelland - Pastel lavender
+  "5" = "#F9D88B"   # Svizzera italiana - Pastel yellow/gold
+)
+
+create_wemf_map <- function() {
+  bezirke_sf <- st_as_sf(GetMap("bezk.map"))
+
+  # Join with WEMF mapping
+  bezirke_wemf <- bezirke_sf %>%
+    left_join(wemf_mapping, by = "name")
+
+  # Check for unmatched
+  unmatched <- bezirke_wemf %>% filter(is.na(region_id)) %>% pull(name)
+  if (length(unmatched) > 0) {
+    cat("Unmatched districts:\n")
+    print(sort(unmatched))
+  }
+
+  cat("\nRegion distribution:\n")
+  print(table(bezirke_wemf$region_id, useNA = "ifany"))
+
+  # Get lakes
+  lakes_sf <- tryCatch({
+    st_as_sf(GetMap("gde.see"))
+  }, error = function(e) NULL)
+
+  # Create legend labels with percentages
+  # These percentages are extracted from the data but hardcoded here to not process the data again
+  legend_labels <- c(
+    "Suisse romande (22.3%)",
+    "Alpen und Voralpen (20.3%)",
+    "Westmittelland (21.5%)",
+    "Ostmittelland (25.5%)",
+    "Svizzera italiana (10.4%)"
+  )
+  # Plot
+  p <- ggplot() +
+    geom_sf(data = bezirke_wemf, aes(fill = factor(region_id)),
+            color = "white", linewidth = 0.2)
+
+  if (!is.null(lakes_sf)) {
+    p <- p + geom_sf(data = lakes_sf, fill = "lightblue", color = "grey50", linewidth = 0.1)
+  }
+
+  p <- p +
+    scale_fill_manual(
+      values = wemf_region_colors,
+      # labels = wemf_regions$region_name,
+      labels = legend_labels,
+      name = "WEMF Region",
+      na.value = "grey80"
+    ) +
+    theme_void() +
+    theme(
+        legend.position = "right",
+        legend.title = element_text(size = 14, face = "bold"),
+        legend.text = element_text(size = 12),
+        legend.key.size = unit(0.8, "cm"),
+        plot.margin = margin(10, 10, 10, 10)
+    ) +
+    guides(fill = guide_legend(override.aes = list(color = NA)))
+
+  return(p)
+}
+
+
+p <- create_wemf_map()
+print(p)
+
+save_plot(filename = "wemf_map_regions", plot = p)
+
+```
+

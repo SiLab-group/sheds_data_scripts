@@ -1,5 +1,8 @@
 *.nb.html
+*.eps
+*.pdf
 *.csv
+*.png
 *figures/*
 __pycache__/
 .ipynb_*

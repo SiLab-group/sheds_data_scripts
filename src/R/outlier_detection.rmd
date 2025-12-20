@@ -1,0 +1,497 @@
+---
+title: "Respondents detection"
+output: html_notebook
+---
+
+```{r}
+library(haven)
+library(tidyverse)
+library(skimr)
+library(corrplot)
+library(scales)
+library(ggthemes)
+library(kableExtra)
+library(knitr)
+
+
+current_dir <- getwd()
+source(file.path(current_dir,"src","R","utils.R"))
+source(file.path(current_dir,"src","R","outliers_functions.R"))
+
+years <- c(2016, 2017, 2018, 2019, 2020, 2021, 2023, 2025)
+
+waves <- list()
+
+data_path <- "/home/amy/tmp/sheds_data/files/SHEDS"
+
+waves <- list()
+for (year in years) {
+  file_path <- paste0("/home/amy/tmp/sheds_data/files/SHEDS", year, ".sav")
+  wave_name <- as.character(year)
+  waves[[wave_name]] <- read_clean_sheds(file_path)
+}
+
+all_ids <- waves %>%
+  map_df(~ select(.x, id)) %>%
+  pull(id) %>%
+  unique()
+
+cat("\nTotal unique IDs across all waves:", length(all_ids), "\n")
+
+cat("\n=== Summary ===\n")
+cat("Total respondents (all waves):", sum(map_int(waves, nrow)), "\n")
+cat("Total unique IDs:", length(all_ids), "\n")
+cat("Duplicate appearances:", sum(map_int(waves, nrow)) - length(all_ids), "\n")
+
+id_counts <- waves %>%
+  map_df(~ select(.x, id), .id = "wave") %>%
+  count(id) %>%
+  arrange(desc(n))
+
+cat("\nDistribution of appearances:\n")
+print(table(id_counts$n))
+```
+
+Data filtering config:
+```{r}
+# Duration filtering (in minutes)
+MIN_DURATION <- 0
+MAX_DURATION <- 100
+
+# Apply filters to all waves
+waves_filtered <- map(waves, function(data) {
+  data %>%
+    filter(
+      !is.na(q_totalduration),
+      q_totalduration >= MIN_DURATION,
+      q_totalduration <= MAX_DURATION
+    )
+})
+# Print filtering summary
+cat("\n=== Filtering Summary ===\n")
+cat("Duration range:", MIN_DURATION, "to", MAX_DURATION, "minutes\n\n")
+
+filtering_summary <- data.frame(
+  Wave = names(waves),
+  Original = map_int(waves, nrow),
+  Filtered = map_int(waves_filtered, nrow)
+) %>%
+  mutate(
+    Removed = Original - Filtered,
+    Pct_Kept = round(100 * Filtered / Original, 1)
+  )
+
+print(filtering_summary)
+```
+
+Run outlier detection:
+```{r}
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(corrplot)
+library(patchwork)
+
+wave_summary <- data.frame(
+  Wave = character(),
+  Total_Respondents = integer(),
+  Median_Duration = numeric(),
+  Below_10_min = integer(),
+  Below_10_Pct = numeric(),
+  Above_60_min = integer(),
+  Above_60_Pct = numeric(),
+  Outside_10_60_min = integer(),
+  Outside_10_60_Pct = numeric(),
+  Stability = integer(),
+  Got_Questions = integer(),
+  Straightliners = integer(),
+  Straightliners_Pct_Total = numeric(),
+  Straightliners_Pct_Got = numeric(),
+  Inconsistent = integer(),
+  High_Risk_Count = integer(),
+  High_Risk_Pct = numeric(),
+  Avg_Risk_Score = numeric(),
+  stringsAsFactors = FALSE
+)
+
+wave_results <- list()
+plots <- list()
+
+for (wave_name in names(waves_filtered)) {
+  cat("WAVE:", wave_name, "\n")
+
+  # Get original unfiltered data to count those outside 10-60 range
+  data_original <- waves[[wave_name]]
+  below_10 <- sum(data_original$q_totalduration < 10, na.rm = TRUE)
+  above_60 <- sum(data_original$q_totalduration > 60, na.rm = TRUE)
+  outside_range <- below_10 + above_60
+
+  data_filtered <- waves_filtered[[wave_name]]
+  total <- nrow(data_filtered)
+  total_original <- nrow(data_original)
+
+  # Calculate median duration
+  median_duration <- median(data_filtered$q_totalduration, na.rm = TRUE)
+
+  results <- run_outlier_detection(data_filtered)
+    incons_detail <- results %>%
+    filter(inconsistent == TRUE) %>%
+    pull(inconsistency_types)
+
+  if (length(incons_detail) > 0) {
+    cat("\n--- Inconsistency type breakdown ---\n")
+
+    # Split combined types (e.g. "age_mismatch; no_car_but_uses_car") into individual counts
+    all_types <- unlist(strsplit(incons_detail, "; "))
+    type_counts <- sort(table(all_types), decreasing = TRUE)
+
+    for (i in seq_along(type_counts)) {
+      cat(sprintf("  %-40s %d (%.1f%% of inconsistent)\n",
+                  names(type_counts)[i],
+                  type_counts[i],
+                  100 * type_counts[i] / length(incons_detail)))
+    }
+
+    # How many had multiple types flagged
+    n_multi <- sum(grepl(";", incons_detail))
+    cat(sprintf("\n  Respondents with >1 inconsistency type: %d\n\n", n_multi))
+  }
+
+
+  wave_results[[wave_name]] <- results
+
+  timing_speeders <- sum(results$timing_speeder, na.rm = TRUE)
+  straightliners <- sum(results$straightline, na.rm = TRUE)
+  inconsistent <- sum(results$inconsistent, na.rm = TRUE)
+  high_risk_count <- sum(results$high_risk, na.rm = TRUE)
+  avg_risk <- mean(results$risk_score, na.rm = TRUE)
+
+  # Extract straightlining statistics
+  straightline_stats <- attr(results, "straightline_summary_stats")
+  n_got_questions <- if(!is.null(straightline_stats)) {
+    straightline_stats$n_got_questions
+  } else {
+    NA
+  }
+
+  cat(sprintf("Total (original): %d\n", total_original))
+  cat(sprintf("Total (filtered): %d\n", total))
+  cat(sprintf("Below 10 min: %d (%.1f%%)\n", below_10, 100*below_10/total_original))
+  cat(sprintf("Above 60 min: %d (%.1f%%)\n", above_60, 100*above_60/total_original))
+  cat(sprintf("Outside 10-60 min range: %d (%.1f%%)\n", outside_range,
+              100*outside_range/total_original))
+  cat(sprintf("5th percentile: %d (%.1f%%)\n", timing_speeders, 100*timing_speeders/total))
+  cat(sprintf("Straightliners: %d (%.1f%%)\n", straightliners, 100*straightliners/total))
+  if(!is.na(n_got_questions)) {
+    cat(sprintf("  • Got >2 questions: %d\n", n_got_questions))
+    cat(sprintf("  • Straightliners as %% of those who got questions: %.1f%%\n",
+                100*straightliners/n_got_questions))
+  }
+  cat(sprintf("Inconsistent: %d (%.1f%%)\n", inconsistent, 100*inconsistent/total))
+  cat(sprintf("High-risk: %d (%.2f%%)\n\n", high_risk_count, 100*high_risk_count/total))
+
+  # Plots distribution with the measures
+  plots[[wave_name]] <- plot_completion_distribution(data_filtered, wave_name, show_plot = FALSE)
+
+  wave_summary <- rbind(wave_summary, data.frame(
+    Wave = wave_name,
+    Total_Respondents = total,
+    Median_Duration = median_duration,
+    Below_10_min = below_10,
+    Below_10_Pct = (below_10 / total_original) * 100,
+    Above_60_min = above_60,
+    Above_60_Pct = (above_60 / total_original) * 100,
+    Outside_10_60_min = outside_range,
+    Outside_10_60_Pct = (outside_range / total_original) * 100,
+    Stability = timing_speeders,
+    Got_Questions = ifelse(is.na(n_got_questions), total, n_got_questions),
+    Straightliners = straightliners,
+    Straightliners_Pct_Total = (straightliners / total) * 100,
+    Straightliners_Pct_Got = ifelse(is.na(n_got_questions),
+                                     (straightliners / total) * 100,
+                                     (straightliners / n_got_questions) * 100),
+    Inconsistent = inconsistent,
+    High_Risk_Count = high_risk_count,
+    High_Risk_Pct = (high_risk_count / total) * 100,
+    Avg_Risk_Score = avg_risk
+  ))
+}
+
+# Print summary table
+cat("\n=== WAVE SUMMARY TABLE ===\n")
+print(wave_summary)
+
+# Create a formatted duration filtering table
+cat("\n=== DURATION FILTERING SUMMARY ===\n")
+duration_table <- wave_summary %>%
+  select(Wave, Total_Respondents,
+         Below_10_min, Below_10_Pct,
+         Above_60_min, Above_60_Pct,
+         Outside_10_60_min, Outside_10_60_Pct) %>%
+  mutate(
+    Below_10_Pct = sprintf("%.1f%%", Below_10_Pct),
+    Above_60_Pct = sprintf("%.1f%%", Above_60_Pct),
+    Outside_10_60_Pct = sprintf("%.1f%%", Outside_10_60_Pct)
+  )
+
+print(duration_table, row.names = FALSE)
+
+# Create a formatted straightlining table
+cat("\n=== STRAIGHTLINING SUMMARY ===\n")
+straightlining_table <- wave_summary %>%
+  select(Wave, Total_Respondents,
+         Got_Questions, Straightliners,
+         Straightliners_Pct_Total, Straightliners_Pct_Got) %>%
+  mutate(
+    Straightliners_Pct_Total = sprintf("%.1f%%", Straightliners_Pct_Total),
+    Straightliners_Pct_Got = sprintf("%.1f%%", Straightliners_Pct_Got)
+  )
+
+print(straightlining_table, row.names = FALSE)
+
+wrapped <- wrap_plots(plots, ncol = 2) & theme(plot.margin = margin(5, 5, 5, 5))
+
+#print(wrapped)
+save_plot(wrapped, "plots_distribution")
+generate_latex_row(wave_summary, "Total_Respondents", "All (N)")
+generate_latex_row(wave_summary, "Median_Duration", "Median duration (minutes)", format_decimal = TRUE)
+generate_latex_row(wave_summary, "Below_10_min", "Speeders (<10 min)", add_percentage = TRUE, pct_column = "Below_10_Pct")
+generate_latex_row(wave_summary, "Above_60_min", "Slow completion time (>60 min)", add_percentage = TRUE, pct_column = "Above_60_Pct")
+generate_latex_row(wave_summary, "Outside_10_60_min", "Response time outliers (<10 >60 min)", add_percentage = TRUE, pct_column = "Outside_10_60_Pct")
+generate_latex_row(wave_summary, "Straightliners", "Straightliners (N)", add_percentage = TRUE, pct_column = "Straightliners_Pct_Got")
+generate_latex_row(wave_summary, "Inconsistent", "Inconsistent (N)")
+```
+
+Investigate straightliners:
+```{r}
+straightliner_details <- analyze_all_straightliners(waves_filtered)
+
+# To examine a specific wave in detail:
+wave_2023_straightliners <- straightliner_details[["2023"]]
+print(wave_2023_straightliners)
+```
+
+Plot ridges:
+```{r}
+library(ggridges)
+plot_waves_ridges(waves_filtered)
+```
+
+Waves:
+```{r}
+library(ggplot2)
+library(dplyr)
+
+combined <- bind_rows(
+  map(names(waves_filtered), function(wave) {
+    waves_filtered[[wave]] %>%
+      mutate(Wave = wave) %>%
+      select(Wave, Duration = q_totalduration)
+  })
+)
+
+pp <- ggplot(combined, aes(x = Wave, y = Duration, fill = Wave)) +
+  geom_violin(alpha = 0.6) +
+  geom_boxplot(width = 0.2, alpha = 0.8, outlier.alpha = 0.3) +
+  geom_hline(yintercept = c(10, 60), linetype = "dotted", color = "gray50") +
+  labs(
+    x = "Wave", y = "Completion Time (minutes)"
+  ) +
+  scale_fill_brewer(palette = "Set2") +
+  scale_y_continuous(breaks = seq(0, max(combined$Duration, na.rm = TRUE) + 10, by = 5)) +
+  theme_minimal(base_size = 16) +
+  theme(
+    legend.position = "none",
+    axis.title = element_text(size = 18, face = "bold"),
+    axis.text = element_text(size = 16),
+    axis.text.x = element_text(size = 16, face = "bold"),
+    panel.grid.major.x = element_blank()
+  )
+
+print(pp)
+
+save_plot(pp,"violin_plot_distribution")
+```
+
+
+Duration variables:
+```{r}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(patchwork)
+library(lubridate)
+
+hms_to_minutes <- function(x) {
+    parsed <- hms(x)
+    ifelse(is.na(parsed), NA_real_, as.numeric(parsed) / 60)
+}
+
+comparison_waves <- names(waves_filtered) %>%
+  keep(~ "duration_hms" %in% names(waves_filtered[[.x]]))
+
+if (length(comparison_waves) == 0) {
+  message("No waves contain duration_hms.")
+} else {
+  cat("Waves with duration_hms:", paste(comparison_waves, collapse = ", "), "\n\n")
+
+  dur_cmp <- bind_rows(
+    map(comparison_waves, function(wv) {
+      waves_filtered[[wv]] %>%
+        transmute(
+          Wave          = wv,
+          id,
+          dur_qualtrics = q_totalduration,
+          dur_hms       = hms_to_minutes(duration_hms)
+        )
+    })
+  ) %>%
+    filter(!is.na(dur_qualtrics), !is.na(dur_hms)) %>%
+    mutate(diff_min = dur_hms - dur_qualtrics)
+
+
+  dur_stats <- dur_cmp %>%
+    group_by(Wave) %>%
+    summarise(
+      n            = n(),
+      p5_qualt     = quantile(dur_qualtrics, 0.05),
+      median_qualt = median(dur_qualtrics),
+      p95_qualt    = quantile(dur_qualtrics, 0.95),
+      max_qualt    = max(dur_qualtrics),
+      p5_hms       = quantile(dur_hms, 0.05),
+      median_hms   = median(dur_hms),
+      p95_hms      = quantile(dur_hms, 0.95),
+      max_hms      = max(dur_hms),
+      median_diff  = median(diff_min),
+      pct_gt1min   = 100 * mean(abs(diff_min) > 1),
+      .groups      = "drop"
+    )
+  print(dur_stats)
+
+
+  xmax_adaptive <- dur_cmp %>%
+    summarise(across(c(dur_qualtrics, dur_hms),
+                     ~ quantile(.x, 0.99, na.rm = TRUE))) %>%
+    max()
+  xmax_adaptive <- ceiling(xmax_adaptive / 10) * 10   # round up to nearest 10
+
+  cat(sprintf("\nAdaptive xmax (99th pct): %.0f min\n", xmax_adaptive))
+
+
+  dur_long <- dur_cmp %>%
+    pivot_longer(cols = c(dur_qualtrics, dur_hms),
+                 names_to  = "Source",
+                 values_to = "Minutes") %>%
+    mutate(Source = recode(Source,
+                           dur_qualtrics = "q_totalduration",
+                           dur_hms       = "duration_hms"))
+
+```
+
+Duration violin:
+```{r}
+dur_long <- bind_rows(
+  map(comparison_waves, function(wv) {
+    waves_filtered[[wv]] %>%
+      transmute(
+        Wave          = wv,
+        id,
+        dur_qualtrics = q_totalduration,
+        dur_hms       = hms_to_minutes(duration_hms)
+      )
+  })
+) %>%
+  filter(!is.na(dur_qualtrics), !is.na(dur_hms)) %>%
+  pivot_longer(cols = c(dur_qualtrics, dur_hms),
+               names_to  = "Source",
+               values_to = "Minutes") %>%
+  mutate(
+    Source = recode(Source,
+                    dur_qualtrics = "q_totalduration",
+                    dur_hms       = "duration_hms"),
+    Wave = factor(Wave)
+  )
+
+p_violin <- ggplot(dur_long, aes(x = Source, y = Minutes, fill = Source)) +
+  geom_violin(alpha = 0.6, trim = TRUE) +
+  geom_boxplot(width = 0.15, alpha = 0.9, outlier.size = 0.5, outlier.alpha = 0.3) +
+  geom_hline(yintercept = c(10, 60), linetype = "dotted", colour = "grey40", linewidth = 0.7) +
+  facet_wrap(~ Wave, nrow = 1) +
+  scale_fill_manual(values = c("q_totalduration" = "#4E9AF1",
+                                "duration_hms"    = "#F1A34E")) +
+  scale_y_continuous(breaks = seq(0, max(dur_long$Minutes, na.rm = TRUE) + 10, by = 10)) +
+  labs(
+    title    = "Completion time: q_totalduration vs duration_hms",
+    subtitle = "Dotted lines at 10 & 60 min; boxes show median + IQR",
+    x = NULL, y = "Completion time (minutes)"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    legend.position   = "top",
+    strip.text        = element_text(face = "bold", size = 14),
+    axis.text.x       = element_text(size = 11),
+    panel.grid.major.x = element_blank()
+  )
+
+print(p_violin)
+save_plot(p_violin, "duration_hms_violin")
+```
+
+diff durations:
+```{r}
+dur_diff <- bind_rows(
+  map(comparison_waves, function(wv) {
+    waves_filtered[[wv]] %>%
+      transmute(
+        Wave          = wv,
+        id,
+        dur_qualtrics = q_totalduration,
+        dur_hms       = hms_to_minutes(duration_hms),
+        diff_sec      = (hms_to_minutes(duration_hms) - q_totalduration) * 60
+      )
+  })
+) %>%
+  filter(!is.na(dur_qualtrics), !is.na(dur_hms))
+
+cat("=== Difference summary (duration_hms − q_totalduration, in seconds) ===\n")
+dur_diff %>%
+  group_by(Wave) %>%
+  summarise(
+    n            = n(),
+    min          = min(diff_sec),
+    max          = max(diff_sec),
+    median       = median(diff_sec),
+    mean         = mean(diff_sec),
+    pct_zero     = 100 * mean(diff_sec == 0),
+    pct_within1s = 100 * mean(abs(diff_sec) <= 1),
+    .groups = "drop"
+  ) %>%
+  print()
+
+
+p_diff <- ggplot(dur_diff, aes(x = diff_sec, fill = Wave)) +
+  geom_histogram(binwidth = 1, colour = "white", alpha = 0.8) +
+  geom_vline(xintercept = 0, linetype = "solid",  colour = "black", linewidth = 1) +
+  geom_vline(xintercept = c(-5, 5), linetype = "dotted", colour = "grey40") +
+  facet_wrap(~ Wave, nrow = 1, scales = "free_y") +
+  scale_fill_brewer(palette = "Set2") +
+  scale_x_continuous(breaks = seq(-30, 30, by = 5),
+                     limits = c(
+                       max(-30, min(dur_diff$diff_sec) - 2),
+                       min( 30, max(dur_diff$diff_sec) + 2)
+                     )) +
+  labs(
+    title    = "Difference: duration_hms − q_totalduration (seconds)",
+    subtitle = "A spike at 0 = identical; dotted lines at ±5 sec",
+    x = "Difference (seconds)", y = "Count"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    legend.position    = "none",
+    strip.text         = element_text(face = "bold", size = 14),
+    panel.grid.major.x = element_blank()
+  )
+
+print(p_diff)
+save_plot(p_diff, "duration_diff_seconds")
+```

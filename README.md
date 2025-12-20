@@ -45,30 +45,21 @@ install.packages(c("haven", "tidyverse", "zoo", "scales"))
 ```r
 source("utils.R")
 
-# Load single wave (filters out screen == 3)
-sheds <- read_clean_sheds("/path/to/SHEDS2025.sav")
+## Content
+- `sheds_questions_up2025.csv`: contains the question ids over the years, 1 indicating the question occured in the given year
+- `sheds_explore.Rmd`: contains loading of the sav file in R with the metadata and some example graphs
+- `read_sav_example.ipynb`: contains loading of sav file in python with metadata and examples how to access metadata
 
-# Get summary statistics
-summary <- get_data_summary(sheds)
+## Loading SPSS file
+1. For the loading the library `haven` has to be first installed. After that the file can be loaded:
+```R
+library(haven)        # Read SPSS files
+sheds <- read_sav("/Users/olaf/NAMEFILE.sav", encoding="UTF-8")
 ```
 
 ### Python
 
-```python
-from utils import read_clean_sheds, get_data_summary
-
-# Load single wave (filters out screen == 3)
-sheds = read_clean_sheds("/path/to/SHEDS2025.sav")
-
-# Get summary statistics
-summary = get_data_summary(sheds)
-```
-
-## Working with SPSS Metadata
-
-
-### Python - Accessing Labels
-
+2. For the reading the file library pyreadstat has to be first installed. Then the the file can be loaded with metadata:
 ```python
 import pyreadstat
 
