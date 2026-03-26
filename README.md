@@ -15,13 +15,16 @@ sheds_data_scripts/
 └── src/
     ├── python/
     │   ├── utils.py # Contains useful functions
-    │   ├── sheds_explore.ipynb
-    │   ├── longitudinal_exploration.ipynb
-    │   └── read_sav_example.ipynb
+    │   ├── sheds_explore.ipynb # Explore dataset and metadata
+    │   ├── longitudinal_exploration.ipynb # EV ownership
+    │   └── read_sav_example.ipynb # Simple example of how to read and use metadata
     └── R/
         ├── utils.R # Contains useful functions
-        ├── sheds_explore.Rmd
-        └── longitudinal_exploration.rmd
+        ├── sheds_explore.Rmd # Explore dataset and metadata
+        ├── outlier_detection.Rmd # Outlier detection
+        ├── outliers_functions.R
+        ├── wemf_regions_distribution_map.Rmd # Create region distribution map
+        └── longitudinal_exploration.rmd # EV ownership
 ```
 
 ## Setup
