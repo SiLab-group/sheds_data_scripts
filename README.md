@@ -3,6 +3,11 @@
 Scripts for processing and analyzing the Swiss Household Energy Demand Survey (SHEDS) data in R and Python.
 SHEDS data is stored in SPSS format (.sav) which includes value labels and variable descriptions. Descriptions and more information can be found at [SHEDS - Sweet Cross](https://sweet-cross.ch/sheds/).
 
+**Figure 1. SHEDS timeline and response counts by wave**
+<img width="2224" height="1202" alt="sheds_timeline_counts" src="https://github.com/user-attachments/assets/713a6f56-d32d-4148-b1ff-34df0b3cd7e8" />
+
+*Note: This Figure shows the number of variables (columns) available in SHEDS datasets in each category. These do not correspond to numbers of questions because each item of a question is coded in its own column.*
+
 ## Project Structure
 The project provides example scripts demonstrating how to work with SHEDS data in R and Python.
 It also includes a CSV file listing all question identifiers across survey years, indicating when each question was used, to improve transparency and facilitate longitudinal analysis.
