@@ -218,7 +218,7 @@ p_comparison_population <- comparison_data_population %>%
   )
 
 print(p_comparison_population)
-save_plot(p_comparison_population, "bfs_vs_sheds_comparison_population", width = 14, height = 5)
+save_plot(p_comparison_population, "bfs_vs_sheds_comparison_population_old", width = 14, height = 5)
 ```
 
 New bfs file:
@@ -227,17 +227,19 @@ fso <- read_csv("/home/amy/tmp/repos/sheds_data_scripts/src/fso_stock_vehicles.c
   mutate(
     phev        = phev_petrol + phev_diesel,
     hev         = petrol_hev + diesel_hev,
+    total_hybrid = phev + hev,
     ev_pct      = (bev  / total) * 100,
-    phev_pct    = (phev / total) * 100,
-    hev_pct     = (hev  / total) * 100
+    phev_pct    = (total_hybrid / total) * 100,
+    hev_pct     = (hev  / total) * 100,
+    hybrid_pct = (total_hybrid /total) * 100
   )
 
 fso_long <- fso %>%
   filter(year %in% c(2019, 2020, 2021, 2023, 2025)) %>%
-  select(year, ev_pct, phev_pct) %>%
+  select(year, ev_pct, hybrid_pct) %>%
   pivot_longer(-year, names_to = "type", values_to = "percentage") %>%
   mutate(
-    type   = recode(type, "ev_pct" = "Pure Electric", "phev_pct" = "Hybrid"),
+    type   = recode(type, "ev_pct" = "Pure Electric", "hybrid_pct" = "Hybrid"),
     source = "FSO (Official)"
   )
 
