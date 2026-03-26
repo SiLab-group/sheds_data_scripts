@@ -161,7 +161,7 @@ build_car_history_stata <- function(all_waves_list) {
     lapply(names(all_waves_list), function(year) {
       all_waves_list[[year]] %>%
         #select(id, mob2_1, mob3_3, any_of("old"), any_of("mob2_e"), any_of("mob3_change")) %>%
-        select(id, mob2_1, mob3_3, any_of("old"), any_of("mob2_e"), any_of("mob3_change"), any_of("md_hhgr")) %>%
+        select(id, mob2_1, mob3_3, md_220, any_of("old"), any_of("mob2_e"), any_of("mob3_change"), any_of("md_hhgr")) %>%
         mutate(across(everything(), ~ as.vector(.))) %>%
         mutate(year_wave = as.numeric(year),
                # recode SPSS missing codes to NA before fill
@@ -236,7 +236,7 @@ analyze_ev_ownership_data <- function(data_history, year, raw_waves ) {
 
   n_total_raw <- nrow(raw_waves[[as.character(year)]])
 
-  # --- Total population (all respondents) ---
+  # --- Total population meaning sum of household members ---
   total_population <- if("md_hhgr" %in% names(data_finished)) {
     sum(data_finished$md_hhgr, na.rm = TRUE)
   } else {
@@ -252,6 +252,12 @@ analyze_ev_ownership_data <- function(data_history, year, raw_waves ) {
 
   car_owners <- if("mob2_1" %in% names(data_finished)) {
     data_finished %>% filter(mob2_1 > 0 & mob2_1 < 90) %>% nrow()
+  } else {
+    NA
+  }
+
+  car_owners_inter <- if("md_220" %in% names(data_finished)) {
+    data_finished %>% filter(md_220 > 0 & md_220 < 90) %>% nrow()
   } else {
     NA
   }
@@ -316,6 +322,7 @@ analyze_ev_ownership_data <- function(data_history, year, raw_waves ) {
     ev_rate_population         = total_ev / total_population,
     ev_rate_car_owner_pop      = total_ev / car_owner_population,
     n_car_owners               = car_owners,
+    n_car_owners_inter         = car_owners_inter,
     n_ev_main                  = if(!is.na(ev_main)) ev_main else 0,
     n_ev_secondary             = if(!is.na(ev_secondary)) ev_secondary else 0,
     n_ev_total                 = total_ev,
