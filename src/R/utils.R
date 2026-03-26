@@ -161,7 +161,7 @@ build_car_history_stata <- function(all_waves_list) {
     lapply(names(all_waves_list), function(year) {
       all_waves_list[[year]] %>%
         #select(id, mob2_1, mob3_3, any_of("old"), any_of("mob2_e"), any_of("mob3_change")) %>%
-        select(id, mob2_1, mob3_3, md_220, any_of("old"), any_of("mob2_e"), any_of("mob3_change"), any_of("md_hhgr")) %>%
+        select(id, mob2_1, mob3_3, any_of("md_220"), any_of("old"), any_of("mob2_e"), any_of("mob3_change"), any_of("md_hhgr")) %>%
         mutate(across(everything(), ~ as.vector(.))) %>%
         mutate(year_wave = as.numeric(year),
                # recode SPSS missing codes to NA before fill
@@ -257,7 +257,8 @@ analyze_ev_ownership_data <- function(data_history, year, raw_waves ) {
   }
 
   car_owners_inter <- if("md_220" %in% names(data_finished)) {
-    data_finished %>% filter(md_220 > 0 & md_220 < 90) %>% nrow()
+  data_finished %>%
+    filter(as.numeric(md_220) > 0 & as.numeric(md_220) < 90) %>% nrow()
   } else {
     NA
   }
@@ -277,26 +278,26 @@ analyze_ev_ownership_data <- function(data_history, year, raw_waves ) {
   }
 
   ev_main <- if("mob3_3_filled" %in% names(data_finished)) {
-    data_finished %>% filter(mob3_3_filled == 8) %>% nrow()
+    data_finished %>% filter(mob2_1 > 0 & mob2_1 < 90) %>% filter(mob3_3_filled == 8) %>% nrow()
   } else {
     NA
   }
 
   # Fixed: use mob2_e_filled instead of mob2_e, and == 8 (engine type) instead of == 1
   ev_secondary <- if("mob2_e_filled" %in% names(data_finished)) {
-    data_finished %>% filter(mob2_e_filled == 1) %>% nrow()
+    data_finished %>% filter(mob2_1 > 0 & mob2_1 < 90) %>% filter(mob2_e_filled == 1) %>% nrow()
   } else {
     NA
   }
 
   hybrid_gas <- if("mob3_3_filled" %in% names(data_finished)) {
-    data_finished %>% filter(mob3_3_filled %in% c(5, 6)) %>% nrow()
+    data_finished %>% filter(mob2_1 > 0 & mob2_1 < 90) %>% filter(mob3_3_filled %in% c(5, 6)) %>% nrow()
   } else {
     NA
   }
 
   hybrid_diesel <- if("mob3_3_filled" %in% names(data_finished)) {
-    data_finished %>% filter(mob3_3_filled == 7) %>% nrow()
+    data_finished %>% filter(mob2_1 > 0 & mob2_1 < 90) %>% filter(mob3_3_filled == 7) %>% nrow()
   } else {
     NA
   }
@@ -329,8 +330,7 @@ analyze_ev_ownership_data <- function(data_history, year, raw_waves ) {
     n_hybrid_gas               = if(!is.na(hybrid_gas)) hybrid_gas else 0,
     n_hybrid_diesel            = if(!is.na(hybrid_diesel)) hybrid_diesel else 0,
     ev_rate_all                = total_ev / n_total_raw,
-    ev_rate_car_owners         = if(!is.na(car_owners) & car_owners > 0)
-      total_ev / car_owners else NA,
+    ev_rate_car_owners         = if(!is.na(car_owners) & car_owners > 0) total_ev / car_owners else NA,
     n_changed_car              = changed_car,
     new_respondents            = new_car_owners
   )
