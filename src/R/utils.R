@@ -302,6 +302,19 @@ analyze_ev_ownership_data <- function(data_history, year, raw_waves ) {
     NA
   }
 
+  # Total vehicles from mob2_1 (history)
+total_vehicles_mob2 <- if("mob2_1" %in% names(data_finished)) {
+  sum(as.numeric(data_finished$mob2_1[data_finished$mob2_1 > 0 & data_finished$mob2_1 < 90]),
+      na.rm = TRUE)
+} else NA
+
+# Total vehicles from md_220 (fresh per wave)
+total_vehicles_md220 <- if("md_220" %in% names(data_finished)) {
+  sum(as.numeric(data_finished$md_220[as.numeric(data_finished$md_220) > 0 &
+                                       as.numeric(data_finished$md_220) < 90]),
+      na.rm = TRUE)
+} else NA
+
   total_ev <- sum(c(ev_main, ev_secondary), na.rm = TRUE)
 
   cat("Total respondents:", nrow(data_finished), "\n")
@@ -332,7 +345,10 @@ analyze_ev_ownership_data <- function(data_history, year, raw_waves ) {
     ev_rate_all                = total_ev / n_total_raw,
     ev_rate_car_owners         = if(!is.na(car_owners) & car_owners > 0) total_ev / car_owners else NA,
     n_changed_car              = changed_car,
-    new_respondents            = new_car_owners
+    new_respondents            = new_car_owners,
+    n_total_vehicles_mob2  = total_vehicles_mob2,   # sum of cars from history
+    n_total_vehicles_md220 = total_vehicles_md220,  # sum of cars from md_220
+    ev_rate_vehicles = total_ev / n_total_vehicles_mob2
   )
 }
 
