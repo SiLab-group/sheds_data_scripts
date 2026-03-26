@@ -383,7 +383,9 @@ sheds_counts <- results_stata %>%
     n_ev_total,
     n_hybrid_gas,
     n_hybrid_diesel,
-    n_hybrid_total
+    n_hybrid_total,
+    n_total_vehicles_mob2,
+    n_total_vehicles_md220
   )
 
 print(sheds_counts)
@@ -391,38 +393,6 @@ print(sheds_counts)
 write_csv(sheds_counts, "../sheds_vehicle_counts.csv")
 ```
 
-check:
-```{r}
-stata_car_history %>%
-  group_by(year_wave) %>%
-  summarise(
-    n_respondents    = n(),
-    n_returning      = sum(id %in% stata_car_history$id[stata_car_history$year_wave < year_wave]),
-    n_new            = n_respondents - n_returning
-  )
 
-stata_car_history %>%
-  group_by(year_wave) %>%
-  summarise(
-    n_respondents = n(),
-    n_returning   = sum(id %in% stata_car_history$id[stata_car_history$year_wave < year_wave]),
-    n_new         = n_respondents - n_returning,
-    n_car_owners  = sum(mob2_1 >= 1 & mob2_1 < 90, na.rm = TRUE),
-    n_no_car      = n_respondents - n_car_owners,
-    pct_car_owners = round(n_car_owners / n_respondents * 100, 1)
-  ) %>%
-  left_join(
-    results_stata %>% select(year, n_car_owners) %>% rename(n_car_owners_stata = n_car_owners),
-    by = c("year_wave" = "year")
-  ) %>%
-  mutate(match = n_car_owners == n_car_owners_stata) %>%
-  kable(
-    col.names = c("Year", "N Respondents", "N Returning", "N New",
-                  "N Car Owners", "N No Car", "% Car Owners",
-                  "N Car Owners (results_stata)", "Match"),
-    align = "r",
-    format.args = list(big.mark = ",")
-  ) %>%
-  kable_styling(bootstrap_options = c("striped", "condensed"), full_width = FALSE)
 ```
 
