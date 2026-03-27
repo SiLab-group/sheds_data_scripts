@@ -168,14 +168,29 @@ car_data <- waves[["2025"]] %>%
                                                     "Unknown"))
   )
 
-
+car_data %>%
+  mutate(
+    vehicle_class = case_when(
+      mob3_3_filled == 8 | mob2_e_filled %in% 1 ~ "Electric",
+      mob3_3_filled %in% c(5, 6, 7)             ~ "Hybrid",
+      mob3_3_filled == 1                         ~ "Gasoline",
+      mob3_3_filled == 2                         ~ "Diesel",
+      mob3_3_filled == 3                         ~ "Natural gas",
+      mob3_3_filled == 9                         ~ "Other",
+      TRUE                                       ~ "Unknown/NA"
+    )
+  ) %>%
+  filter(car_owner == "Car owner") %>%   # line 183 - remove the # comment
+  {
+    total <- nrow(.)
+    cat("Total car owners:", total, "\n\n")
+    count(., vehicle_class, sort = TRUE) %>%
+      mutate(pct = round(n / total * 100, 1))
+  } %>%
+  print()
 ```
 
-## ============================================================
-## DEMOGRAPHIC VARIABLES CONFIGURATION
-## ============================================================
-## CONTROL ALL DEMOGRAPHIC VARIABLES AND LABELS HERE
-## ============================================================
+Variables:
 
 ```{r}
 # Define which demographics to include (TRUE/FALSE)
@@ -565,6 +580,10 @@ Multinomial logit for no car/ not electric car / electric:
 
 ```{r}
 library(nnet)
+library(httr)
+library(readr)
+library(dplyr)
+library(broom)
 table(car_data$car_owner)
 
 multi_data <- car_data %>%
