@@ -346,9 +346,9 @@ total_vehicles_md220 <- if("md_220" %in% names(data_finished)) {
     ev_rate_car_owners         = if(!is.na(car_owners) & car_owners > 0) total_ev / car_owners else NA,
     n_changed_car              = changed_car,
     new_respondents            = new_car_owners,
-    n_total_vehicles_mob2  = total_vehicles_mob2,   # sum of cars from history
-    n_total_vehicles_md220 = total_vehicles_md220,  # sum of cars from md_220
-    ev_rate_vehicles = total_ev / n_total_vehicles_mob2
+    n_total_vehicles_mob2      = total_vehicles_mob2,   # sum of cars from history
+    n_total_vehicles_md220     = total_vehicles_md220,  # sum of cars from md_220
+    ev_rate_vehicles           = total_ev / n_total_vehicles_mob2
   )
 }
 
