@@ -128,19 +128,57 @@ SHow stata car_history:
 print(stata_car_history)
 ```
 
-Prepare data to be compared with FSO:
-```{r}
-# SHEDS md_708: divide by n_car_owners
-# sheds_md708_pop <- md_708_summary %>%
-#  filter(year %in% c(2019, 2020, 2021, 2023, 2025)) %>%
-#  left_join(results_stata %>% select(year, n_car_owners), by = "year") %>%
-#  mutate(
-#    percentage = (n_ev_md708 / n_car_owners) * 100,
-#    type       = "Pure Electric",
-#    source     = "SHEDS (md_708)"
-#  ) %>%
-#  select(year, type, percentage, source)
 
+Call api FSO:
+```{r}
+library(httr)
+library(readr)
+library(dplyr)
+
+url <- "https://disseminate.stats.swiss/rest/data/CH1.MFZ_IVS,DF_MFZ_1_EMISSION,1.0.0/_T._T._T._T._T+PC+PH+DC+DH+HP+HD+EL+FC+GA+_O._T._T.A?startPeriod=2005&endPeriod=2025&dimensionAtObservation=AllDimensions&format=csvfilewithlabels"
+
+resp <- GET(url)
+cat("Status:", status_code(resp), "\n")
+
+fso_raw <- read_csv(content(resp, as = "text", encoding = "UTF-8"),
+                    show_col_types = FALSE)
+
+fso <- fso_raw %>%
+  filter(!is.na(TIME_PERIOD)) %>%
+  select(FUEL = matches("(?i)fuel"), TIME_PERIOD, OBS_VALUE = matches("(?i)obs_value"))
+
+print(fso)
+names(fso_raw)
+
+fso <- fso_raw %>%
+  filter(!is.na(TIME_PERIOD)) %>%
+  select(fuel = Fuel, year = TIME_PERIOD, value = OBS_VALUE) %>%
+  mutate(fuel_code = case_when(
+    grepl("Total",                                    fuel, ignore.case = TRUE) ~ "total",
+    grepl("Battery electric|^Electric",               fuel, ignore.case = TRUE) ~ "bev",
+    grepl("plug-in hybrid.*petrol|PHEV.*petrol",      fuel, ignore.case = TRUE) ~ "phev_petrol",
+    grepl("plug-in hybrid.*diesel|PHEV.*diesel",      fuel, ignore.case = TRUE) ~ "phev_diesel",
+    grepl("hybrid electric.*petrol|petrol.*hybrid",   fuel, ignore.case = TRUE) ~ "petrol_hev",
+    grepl("hybrid electric.*diesel|diesel.*hybrid",   fuel, ignore.case = TRUE) ~ "diesel_hev",
+    grepl("Petrol: conventional",                     fuel, ignore.case = TRUE) ~ "petrol",
+    grepl("Diesel: conventional",                     fuel, ignore.case = TRUE) ~ "diesel",
+    TRUE ~ "other"
+  )) %>%
+  group_by(year, fuel_code) %>%
+  summarise(value = sum(value, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = fuel_code, values_from = value) %>%
+  mutate(
+    phev         = coalesce(phev_petrol, 0) + coalesce(phev_diesel, 0),
+    hev          = coalesce(petrol_hev,  0) + coalesce(diesel_hev,  0),
+    total_hybrid = phev + hev,
+    ev_pct       = (bev          / total) * 100,
+    hybrid_pct   = (total_hybrid / total) * 100
+  )
+print(fso)
+```
+
+Prepare data to be compared with FSO vehicle stock:
+```{r}
 sheds_md708_pop <- md_708_summary %>%
   filter(year %in% c(2019, 2020, 2021, 2023, 2025)) %>%
   mutate(
@@ -150,22 +188,6 @@ sheds_md708_pop <- md_708_summary %>%
   ) %>%
   select(year, type, percentage, source)
 
-# SHEDS history: divide by n_car_owners, include hybrids
-# sheds_history_pop <- results_stata %>%
-#  filter(year %in% c(2019, 2020, 2021, 2023, 2025)) %>%
-#  mutate(n_hybrid_total = n_hybrid_gas + n_hybrid_diesel) %>%
-#  select(year, n_ev_main, n_ev_secondary, n_hybrid_total, n_total_vehicles_mob2) %>%
-#  pivot_longer(cols = c(n_ev_main, n_ev_secondary, n_hybrid_total),
-#               names_to = "type", values_to = "count") %>%
-#  mutate(
-#    percentage = (count / n_total_vehicles_mob2) * 100,
-#    type       = recode(type,
-#                        "n_ev_main"      = "Pure Electric (Main)",
-#                        "n_ev_secondary" = "Pure Electric (Secondary)",
-#                        "n_hybrid_total" = "Hybrid"),
-#    source     = "SHEDS (History)"
-#  ) %>%
-#  select(year, type, percentage, source)
 
 sheds_history_pop <- bind_rows(
   # 2019+ : separate elec and hybrid counts
@@ -202,77 +224,10 @@ print(sheds_md708_pop)
 print(sheds_history_pop)
 ```
 
-Old BFS file:
-```{r}
-bfs_percentage <- read_csv("/home/amy/tmp/repos/sheds_data_analysis/gr-e-11.03.02.01-03.csv",
-                           show_col_types = FALSE) %>%
-  rename(year = `Unnamed: 0`) %>%
-  filter(year %in% c(2019, 2020, 2021, 2023, 2025)) %>%
-  mutate(
-    hybrid_total   = `conventional hybrid` + `plug-in hybrid`,
-    total_vehicles = petrol + diesel + `conventional hybrid` + `plug-in hybrid` + electric + other,
-    ev_pct         = (electric      / total_vehicles) * 100,
-    hybrid_pct     = (hybrid_total  / total_vehicles) * 100
-  ) %>%
-  select(year, ev_pct, hybrid_pct) %>%
-  pivot_longer(-year, names_to = "type", values_to = "percentage") %>%
-  mutate(
-    type   = recode(type, "ev_pct" = "Pure Electric", "hybrid_pct" = "Hybrid"),
-    source = "FSO (Official)"
-  )
-
-# Bind and stack it
-comparison_data_population <- bind_rows(bfs_percentage, sheds_md708_pop, sheds_history_pop) %>%
-  mutate(
-    source = factor(source, levels = c("FSO (Official)", "SHEDS (md_708)", "SHEDS (History)")),
-    type   = factor(type,   levels = c("Hybrid", "Pure Electric", "Pure Electric (Main)", "Pure Electric (Secondary)"))
-  )
-
-comparison_totals_population <- comparison_data_population %>%
-  group_by(year, source) %>%
-  summarise(total_pct = sum(percentage), .groups = "drop")
-
-
-p_comparison_population <- comparison_data_population %>%
-  left_join(comparison_totals_population, by = c("year", "source")) %>%
-  ggplot(aes(x = source, y = percentage, fill = type)) +
-  geom_col(position = "stack", width = 0.7) +
-  geom_text(aes(label = sprintf("%.1f%%", percentage)),
-            position = position_stack(vjust = 0.5),
-            size = 3.5, color = "white", fontface = "bold") +
-  geom_text(aes(y = total_pct, label = sprintf("%.1f%%", total_pct)),
-            vjust = -0.5, size = 3.5, fontface = "bold", color = "black") +
-  scale_fill_manual(values = c(
-    "Hybrid"                    = "#FF9800",
-    "Pure Electric"             = "#1B5E20",
-    "Pure Electric (Main)"      = "#1B5E20",
-    "Pure Electric (Secondary)" = "#81C784"
-  )) +
-  scale_y_continuous(
-    limits = c(0, max(comparison_totals_population$total_pct) * 1.15),
-    breaks = seq(0, 20, 2),
-    expand = c(0, 0)
-  ) +
-  facet_wrap(~ year, nrow = 1) +
-  labs(x = NULL, y = "Percentage (%)", fill = NULL) +
-  theme_minimal(base_size = 11) +
-  theme(
-    plot.title         = element_text(face = "bold", size = 16),
-    axis.title.y       = element_text(size = 10, face = "bold"),
-    axis.text.x        = element_text(size = 9, angle = 15, hjust = 1),
-    legend.position    = "bottom",
-    legend.text        = element_text(size = 16),
-    panel.grid.major.x = element_blank(),
-    panel.grid.minor   = element_blank(),
-    strip.text         = element_text(face = "bold", size = 16)
-  )
-
-print(p_comparison_population)
-save_plot(p_comparison_population, "bfs_vs_sheds_comparison_population_old", width = 14, height = 5)
-```
 
 New bfs file:
 ```{r}
+
 fso_long <- fso %>%
   filter(year %in% c(2016, 2017, 2018, 2019, 2020, 2021, 2023, 2025)) %>%
   select(year, ev_pct, hybrid_pct) %>%
@@ -350,102 +305,68 @@ p_comparison <- comparison_data_2 %>%
   )
 
 print(p_comparison)
-save_plot(p_comparison, "bfs_vs_sheds_comparison_clean_csv", width = 16, height = 10)
-```
-
-Print comparison data:
-```{r}
-fso_counts <- fso %>%
-  filter(year %in% c(2019, 2020, 2021, 2023, 2025)) %>%
-  select(year, bev, phev, total) %>%
-  pivot_longer(cols = c(bev, phev), names_to = "type", values_to = "count") %>%
-  mutate(
-    type       = recode(type, "bev" = "Pure Electric", "phev" = "Hybrid"),
-    source     = "FSO (Official)",
-    denominator = total
-  ) %>%
-  select(year, type, source, count, denominator)
-
-# --- SHEDS md_708 counts ---
-sheds_md708_counts <- md_708_summary %>%
-  filter(year %in% c(2019, 2020, 2021, 2023, 2025)) %>%
-  left_join(results_stata %>% select(year, n_car_owners), by = "year") %>%
-  mutate(
-    type        = "Pure Electric",
-    source      = "SHEDS (md_708)",
-    count       = n_ev_md708,
-    denominator = n_car_owners
-  ) %>%
-  select(year, type, source, count, denominator)
-
-
-sheds_history_counts <- results_stata %>%
-  filter(year %in% c(2019, 2020, 2021, 2023, 2025)) %>%
-  mutate(n_hybrid_total = n_hybrid_gas + n_hybrid_diesel) %>%
-  select(year, n_ev_main, n_ev_secondary, n_hybrid_total, n_car_owners) %>%
-  pivot_longer(cols = c(n_ev_main, n_ev_secondary, n_hybrid_total),
-               names_to = "type", values_to = "count") %>%
-  mutate(
-    type        = recode(type,
-                         "n_ev_main"      = "Pure Electric (Main)",
-                         "n_ev_secondary" = "Pure Electric (Secondary)",
-                         "n_hybrid_total" = "Hybrid"),
-    source      = "SHEDS (History)",
-    denominator = n_car_owners
-  ) %>%
-  select(year, type, source, count, denominator)
-
-
-bind_rows(fso_counts, sheds_md708_counts, sheds_history_counts) %>%
-  mutate(
-    percentage = round((count / denominator) * 100, 2),
-    source     = factor(source, levels = c("FSO (Official)", "SHEDS (md_708)", "SHEDS (History)")),
-    type       = factor(type,   levels = c("Hybrid", "Pure Electric", "Pure Electric (Main)", "Pure Electric (Secondary)"))
-  ) %>%
-  arrange(year, source, type) %>%
-  kable(
-    col.names   = c("Year", "Type", "Source", "Count", "Total (denom.)", "Pct (%)"),
-    align       = "rlrrrr",
-    format.args = list(big.mark = ",")
-  ) %>%
-  kable_styling(bootstrap_options = c("striped", "condensed"), full_width = FALSE) %>%
-  collapse_rows(columns = c(1, 3), valign = "top")
+save_plot(p_comparison, "bfs_vs_sheds_comparison_with_md708", width = 16, height = 10)
 ```
 
 
-Make csv:
+Without md_708:
 ```{r}
-sheds_counts <- results_stata %>%
-  filter(year %in% c(2019, 2020, 2021, 2023, 2025)) %>%
-  mutate(n_hybrid_total = n_hybrid_gas + n_hybrid_diesel) %>%
-  left_join(
-    md_708_summary %>% select(year, n_ev_md708),
-    by = "year"
-  ) %>%
-  select(
-    year,
-    # denominators
-    n_total,
-    n_car_owners,
-    n_car_owner_population,
-    # md_708 source
-    n_ev_md708,
-    # history source
-    n_ev_main,
-    n_ev_secondary,
-    n_ev_total,
-    n_hybrid_gas,
-    n_hybrid_diesel,
-    n_hybrid_total,
-    n_total_vehicles_mob2,
-    n_total_vehicles_md220
+
+fso_long <- fso %>%
+  filter(year %in% c(2016, 2017, 2018, 2019, 2020, 2021, 2023, 2025)) %>%
+  select(year, ev_pct, hybrid_pct) %>%
+  pivot_longer(-year, names_to = "type", values_to = "percentage") %>%
+  mutate(
+    type   = recode(type, "ev_pct" = "Pure Electric", "hybrid_pct" = "Hybrid"),
+    source = "FSO (Official)"
   )
 
-print(sheds_counts)
+comparison_data_2 <- bind_rows(fso_long, sheds_history_pop) %>%
+  mutate(
+    source = factor(source, levels = c("FSO (Official)", "SHEDS (History)")),
+    type   = factor(type,   levels = c("Hybrid", "Pure Electric", "EV+Hybrid (mixed)"))
+  )
 
-write_csv(sheds_counts, "../sheds_vehicle_counts.csv")
+comparison_totals_2 <- comparison_data_2 %>%
+  group_by(year, source) %>%
+  summarise(total_pct = sum(percentage), .groups = "drop")
+
+p_comparison <- comparison_data_2 %>%
+  left_join(comparison_totals_2, by = c("year", "source")) %>%
+  ggplot(aes(x = source, y = percentage, fill = type)) +
+  geom_col(position = "stack", width = 0.4) +
+  geom_text(aes(label = sprintf("%.1f%%", percentage)),
+            position = position_stack(vjust = 0.5),
+            size = 3.5, color = "white", fontface = "bold") +
+  geom_text(aes(y = total_pct, label = sprintf("%.1f%%", total_pct)),
+            vjust = -0.5, size = 3.5, fontface = "bold", color = "black") +
+  scale_fill_manual(values = c(
+    "Hybrid"            = "#FF9800",
+    "Pure Electric"     = "#1B5E20",
+    "EV+Hybrid (mixed)" = "#66BB6A"
+  )) +
+  scale_y_continuous(
+    limits = c(0, max(comparison_totals_2$total_pct) * 1.15),
+    breaks = seq(0, 25, 2),
+    expand = c(0, 0)
+  ) +
+  facet_wrap(~ year, nrow = 1) +
+  labs(x = NULL, y = "Percentage of total vehicles (%)", fill = NULL) +
+  theme_minimal(base_size = 11) +
+  theme(
+    axis.title.y       = element_text(size = 10, face = "bold"),
+    axis.text.x        = element_text(size = 9, angle = 15, hjust = 1),
+    legend.position    = "bottom",
+    legend.text        = element_text(size = 16),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor   = element_blank(),
+    strip.text         = element_text(face = "bold", size = 16)
+  )
+
+print(p_comparison)
+save_plot(p_comparison, "bfs_vs_sheds_comparison_without_md708", width = 24, height = 6)
 ```
 
 
-```
+
 
