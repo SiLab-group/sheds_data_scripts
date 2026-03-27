@@ -273,19 +273,8 @@ save_plot(p_comparison_population, "bfs_vs_sheds_comparison_population_old", wid
 
 New bfs file:
 ```{r}
-fso <- read_csv("/home/amy/tmp/repos/sheds_data_scripts/src/fso_stock_vehicles.csv") %>%
-  mutate(
-    phev        = phev_petrol + phev_diesel,
-    hev         = petrol_hev + diesel_hev,
-    total_hybrid = phev + hev,
-    ev_pct      = (bev  / total) * 100,
-    phev_pct    = (total_hybrid / total) * 100,
-    hev_pct     = (hev  / total) * 100,
-    hybrid_pct = (total_hybrid /total) * 100
-  )
-
 fso_long <- fso %>%
-  filter(year %in% c(2019, 2020, 2021, 2023, 2025)) %>%
+  filter(year %in% c(2016, 2017, 2018, 2019, 2020, 2021, 2023, 2025)) %>%
   select(year, ev_pct, hybrid_pct) %>%
   pivot_longer(-year, names_to = "type", values_to = "percentage") %>%
   mutate(
@@ -293,10 +282,35 @@ fso_long <- fso %>%
     source = "FSO (Official)"
   )
 
-comparison_data_2 <- bind_rows(fso_long, sheds_md708_pop, sheds_history_pop) %>%
+# also extend md_708 to all years
+md_708_summary <- bind_rows(
+  lapply(names(waves), function(wave_name) {
+    df <- waves[[wave_name]]
+    tibble(
+      year                   = as.integer(wave_name),
+      n_total                = nrow(df),
+      n_car_owners_md220     = if ("md_220" %in% names(df)) sum(as.numeric(df$md_220) >= 1 & as.numeric(df$md_220) < 90, na.rm = TRUE) else NA_integer_,
+      n_ev_md708             = if ("md_708" %in% names(df)) sum(df$md_708 == 1, na.rm = TRUE) else NA_integer_,
+      n_total_vehicles_md220 = if ("md_220" %in% names(df)) sum(as.numeric(df$md_220[as.numeric(df$md_220) >= 1 & as.numeric(df$md_220) < 90]), na.rm = TRUE) else NA_integer_,
+      ev_rate_md708          = n_ev_md708 / n_total,
+      ev_rate_vehicles       = n_ev_md708 / n_total_vehicles_md220
+    )
+  })
+)
+
+sheds_md708_pop <- md_708_summary %>%
+  filter(year %in% c(2016, 2017, 2018, 2019, 2020, 2021, 2023, 2025)) %>%
   mutate(
-    source = factor(source, levels = c("FSO (Official)", "SHEDS (md_708)", "SHEDS (History)")),
-    type   = factor(type,   levels = c("Hybrid", "Pure Electric", "Pure Electric (Main)", "Pure Electric (Secondary)"))
+    percentage = (n_ev_md708 / n_total_vehicles_md220) * 100,
+    type       = "Pure Electric",
+    source     = "SHEDS (md_708)"
+  ) %>%
+  select(year, type, percentage, source)
+
+comparison_data_2 <- bind_rows(fso_long, sheds_history_pop, sheds_md708_pop) %>%
+  mutate(
+    source = factor(source, levels = c("FSO (Official)", "SHEDS (History)", "SHEDS (md_708)")),
+    type   = factor(type,   levels = c("Hybrid", "Pure Electric", "EV+Hybrid (mixed)"))
   )
 
 comparison_totals_2 <- comparison_data_2 %>%
@@ -313,18 +327,17 @@ p_comparison <- comparison_data_2 %>%
   geom_text(aes(y = total_pct, label = sprintf("%.1f%%", total_pct)),
             vjust = -0.5, size = 3.5, fontface = "bold", color = "black") +
   scale_fill_manual(values = c(
-    "Hybrid"                    = "#FF9800",
-    "Pure Electric"             = "#1B5E20",
-    "Pure Electric (Main)"      = "#1B5E20",
-    "Pure Electric (Secondary)" = "#81C784"
+    "Hybrid"            = "#FF9800",
+    "Pure Electric"     = "#1B5E20",
+    "EV+Hybrid (mixed)" = "#66BB6A"
   )) +
   scale_y_continuous(
     limits = c(0, max(comparison_totals_2$total_pct) * 1.15),
-    breaks = seq(0, 20, 2),
+    breaks = seq(0, 25, 2),
     expand = c(0, 0)
   ) +
   facet_wrap(~ year, nrow = 1) +
-  labs(x = NULL, y = "Percentage of car owners (%)", fill = NULL) +
+  labs(x = NULL, y = "Percentage of total vehicles (%)", fill = NULL) +
   theme_minimal(base_size = 11) +
   theme(
     axis.title.y       = element_text(size = 10, face = "bold"),
@@ -337,9 +350,7 @@ p_comparison <- comparison_data_2 %>%
   )
 
 print(p_comparison)
-save_plot(p_comparison, "bfs_vs_sheds_comparison_clean_csv", width = 14, height = 5)
-
-
+save_plot(p_comparison, "bfs_vs_sheds_comparison_clean_csv", width = 16, height = 10)
 ```
 
 Print comparison data:
