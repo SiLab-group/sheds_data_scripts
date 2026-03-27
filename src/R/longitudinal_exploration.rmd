@@ -49,6 +49,8 @@ cat("\nDistribution of appearances:\n")
 print(table(id_counts$n))
 ```
 
+
+
 EV ownership over time using md_708 and history building:
 ```{r}
 library(tidyverse)
@@ -94,7 +96,7 @@ stata_car_history <- build_car_history_stata(waves)
 
 results_stata <- bind_rows(
   analyze_ev_ownership_data(stata_car_history, 2019, waves),
-  analyze_ev_ownership_data(stata_car_history, 2020, waves ),
+  analyze_ev_ownership_data(stata_car_history, 2020, waves),
   analyze_ev_ownership_data(stata_car_history, 2021, waves),
   analyze_ev_ownership_data(stata_car_history, 2023, waves),
   analyze_ev_ownership_data(stata_car_history, 2025, waves)
@@ -102,7 +104,7 @@ results_stata <- bind_rows(
 
 results_stata %>%
   select(year, n_total, n_car_owner_population, n_car_owners, n_ev_main, n_ev_secondary,
-         n_ev_total, n_hybrid_gas, n_hybrid_diesel, ev_rate_car_owners, n_car_owners_inter, n_total_vehicles_md220, n_total_vehicles_mob2, ev_rate_vehicles) %>%
+         n_ev_total, n_hybrid_gas, n_hybrid_diesel, ev_rate_car_owners, n_car_owners_inter, n_total_vehicles_md220, n_total_vehicles_mob2, ev_rate_vehicles, n_hybrid_total, n_elec_total) %>%
   # mutate(ev_rate_car_owners = percent(ev_rate_car_owners, accuracy = 0.01)) %>%
   mutate(
     ev_rate_car_owners = percent(ev_rate_car_owners, accuracy = 0.01),
@@ -110,11 +112,17 @@ results_stata %>%
   ) %>%
   kable(
     col.names = c("Year", "N", "Pop.", "Car Own.", "EV Main", "EV 2nd",
-                  "EV Total", "Hybrid Gas", "Hybrid Dies.", "EV Rate car owners", "N car owners inter", "Total vehicles inter", "Total vehicles mob", "Ev rate vehicles"),
+                  "EV Total", "Hybrid Gas", "Hybrid Dies.", "EV Rate car owners", "N car owners inter", "Total vehicles inter", "Total vehicles mob", "Ev rate vehicles", "Hybrid total", "Elec total"),
     align = "r",
     format.args = list(big.mark = ",")
   ) %>%
   print()
+```
+
+
+SHow stata car_history:
+```{r}
+print(stata_car_history)
 ```
 
 Prepare data to be compared with FSO:

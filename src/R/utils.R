@@ -56,103 +56,6 @@ save_plot <- function(plot, filename, width = 12, height = 8,path = "plots") {
   cat(paste0("Saved: ", filename, ".pdf and .eps\n"))
 }
 
-build_car_history <- function(all_waves_list) {
-  # Combine all waves with car data
-  car_history <- bind_rows(
-    lapply(names(all_waves_list), function(year) {
-      all_waves_list[[year]] %>%
-       #  filter(finished == 1) %>%
-        # select(id,mob2_1, mob3_3, any_of("old"),any_of("mob2_e"), any_of("mob3_change")) %>%
-        select(id, mob2_1, mob3_3, any_of("old"), any_of("mob2_e"), any_of("mob3_change"), any_of("md_hhgr")) %>%
-        # Strip labels to avoid bind_rows conflicts between waves
-        mutate(across(everything(), ~ as.vector(.))) %>%
-        mutate(year_wave = as.numeric(year), participated_this_wave = TRUE,
-        # Recode SPSS missing codes to NA before fill ──
-               mob3_3 = ifelse(mob3_3 %in% c(-2, -1), NA_real_, as.numeric(mob3_3)))
-    })
-  ) %>%
-    arrange(id, year_wave)
-
-   # Create complete grid of all IDs × all years to identify non-participation
-  all_ids <- unique(car_history$id)
-  all_years <- as.numeric(names(all_waves_list))
-
-  complete_grid <- expand.grid( id = all_ids, year_wave = all_years )
-
-   # Join with actual data - missing rows = non-participation
-  car_history <- complete_grid %>%
-    left_join(car_history, by = c("id", "year_wave")) %>%
-    mutate(participated_this_wave = replace_na(participated_this_wave, FALSE)) %>%
-    arrange(id, year_wave)
-
-  # For each person, carry forward car type ONLY if they didn't change their car
-  car_history <- car_history %>%
-    group_by(id) %>%
-    mutate(
-      # Carry forward mob3_3 ONLY if missing AND no car change (Stata logic)
-      mob3_3_filled = {
-        val <- mob3_3
-        for (i in seq_along(val)) {
-          if (is.na(val[i]) && (is.na(mob3_change[i]) || mob3_change[i] == 0)) {
-            if (i > 1) {
-              prev_vals <- val[1:(i-1)]
-              last_known <- tail(prev_vals[!is.na(prev_vals)], 1)
-              if (length(last_known) > 0) val[i] <- last_known
-            }
-          }
-        }
-        val
-      },
-      # Same for mob2_e (secondary car)
-      mob2_e_filled = {
-        val <- mob2_e
-        for (i in seq_along(val)) {
-          if (is.na(val[i]) && (is.na(mob3_change[i]) || mob3_change[i] == 0)) {
-            if (i > 1) {
-              prev_vals <- val[1:(i-1)]
-              last_known <- tail(prev_vals[!is.na(prev_vals)], 1)
-              if (length(last_known) > 0) val[i] <- last_known
-            }
-          }
-        }
-        val
-      }
-    ) %>%
-    filter(participated_this_wave == TRUE) %>%
-    ungroup()
-
-  # Drop E85 (3), natural gas (4), other (9)
-  car_history <- car_history %>%
-    filter(!mob3_3_filled %in% c(3, 4, 9) | is.na(mob3_3_filled))
-
-  return(car_history)
-}
-
-check_finished <- function(data, year) {
-  cat("\n=== Year", year, "===\n")
-
-  # Check if finished column exists
-  if("finished" %in% names(data)) {
-    total_respondents <- nrow(data)
-    finished_count <- data %>%
-      filter(finished == 1) %>%
-      nrow()
-
-    cat("Total respondents:", total_respondents, "\n")
-    cat("Finished respondents:", finished_count, "\n")
-    cat("Completion rate:", scales::percent(finished_count / total_respondents, accuracy = 0.1), "\n")
-
-    # Show distribution of finished values
-    cat("\nFinished column distribution:\n")
-    print(table(data$finished, useNA = "ifany"))
-
-    return(tibble(year = year, total = total_respondents, finished = finished_count))
-  } else {
-    cat("No 'finished' column found!\n")
-    cat("Available columns:", paste(names(data)[1:10], collapse = ", "), "...\n")
-    return(NULL)
-  }
-}
 
 
 build_car_history_stata <- function(all_waves_list) {
@@ -210,8 +113,8 @@ build_car_history_stata <- function(all_waves_list) {
     ungroup()
 
   # Drop E85 (3), natural gas (4), other (9)
-  car_history <- car_history %>%
-    filter(!mob3_3_filled %in% c(3, 4, 9) | is.na(mob3_3_filled))
+  #car_history <- car_history %>%
+  #  filter(!mob3_3_filled %in% c(3, 4, 9) | is.na(mob3_3_filled))
 
   # Recode: 1=Gasoline, 2=Diesel, 5-8=Hybrid or electric
   car_history <- car_history %>%
@@ -234,6 +137,9 @@ analyze_ev_ownership_data <- function(data_history, year, raw_waves ) {
   data_finished <- data_history %>%
     filter(year_wave == year)
 
+  raw_wave <- raw_waves[[as.character(year)]] %>%
+  mutate(across(everything(), as.vector))
+
   n_total_raw <- nrow(raw_waves[[as.character(year)]])
 
   # --- Total population meaning sum of household members ---
@@ -250,13 +156,14 @@ analyze_ev_ownership_data <- function(data_history, year, raw_waves ) {
     sum(data_finished$mob2_1 >= 1 & data_finished$mob2_1 < 90, na.rm = TRUE)
   }
 
-  car_owners <- if("mob2_1" %in% names(data_finished)) {
+   car_owners <- if("mob2_1" %in% names(data_finished)) {
     data_finished %>% filter(mob2_1 > 0 & mob2_1 < 90) %>% nrow()
   } else {
     NA
   }
 
-  car_owners_inter <- if("md_220" %in% names(data_finished)) {
+
+  car_owners_inter <- if("md_220" %in% names(raw_waves)) {
   data_finished %>%
     filter(as.numeric(md_220) > 0 & as.numeric(md_220) < 90) %>% nrow()
   } else {
@@ -283,6 +190,7 @@ analyze_ev_ownership_data <- function(data_history, year, raw_waves ) {
     NA
   }
 
+
   # Fixed: use mob2_e_filled instead of mob2_e, and == 8 (engine type) instead of == 1
   ev_secondary <- if("mob2_e_filled" %in% names(data_finished)) {
     data_finished %>% filter(mob2_1 > 0 & mob2_1 < 90) %>% filter(mob2_e_filled == 1) %>% nrow()
@@ -302,18 +210,31 @@ analyze_ev_ownership_data <- function(data_history, year, raw_waves ) {
     NA
   }
 
-  # Total vehicles from mob2_1 (history)
-total_vehicles_mob2 <- if("mob2_1" %in% names(data_finished)) {
-  sum(as.numeric(data_finished$mob2_1[data_finished$mob2_1 > 0 & data_finished$mob2_1 < 90]),
-      na.rm = TRUE)
-} else NA
+  total_vehicles_mob2 <- if ("mob2_1" %in% names(raw_wave)) {
+    sum(as.numeric(raw_wave$mob2_1[raw_wave$mob2_1 > 0 & raw_wave$mob2_1 < 90]),
+        na.rm = TRUE)
+  } else NA
 
-# Total vehicles from md_220 (fresh per wave)
-total_vehicles_md220 <- if("md_220" %in% names(data_finished)) {
-  sum(as.numeric(data_finished$md_220[as.numeric(data_finished$md_220) > 0 &
-                                       as.numeric(data_finished$md_220) < 90]),
-      na.rm = TRUE)
-} else NA
+  total_vehicles_md220 <- if ("md_220" %in% names(raw_wave)) {
+    sum(as.numeric(raw_wave$md_220[as.numeric(raw_wave$md_220) > 0 &
+                                    as.numeric(raw_wave$md_220) < 90]),
+        na.rm = TRUE)
+  } else NA
+
+  # Stata logic:
+  car_owners_df <- data_finished %>% filter(mob2_1 > 0 & mob2_1 < 90)
+
+  elec_count <- car_owners_df %>%
+    filter(mob3_3_filled %in% 8 | mob2_e %in% 1) %>%
+    nrow()
+
+  ev_count <- car_owners_df %>%
+    filter(mob3_3_filled %in% c(5, 6, 7, 8) | mob2_e %in% 1) %>%
+    nrow()
+
+  hybrid_count <- car_owners_df %>%
+    filter(mob3_3_filled %in% c(5, 6, 7)) %>%
+    nrow()
 
   total_ev <- sum(c(ev_main, ev_secondary), na.rm = TRUE)
 
@@ -339,7 +260,9 @@ total_vehicles_md220 <- if("md_220" %in% names(data_finished)) {
     n_car_owners_inter         = car_owners_inter,
     n_ev_main                  = if(!is.na(ev_main)) ev_main else 0,
     n_ev_secondary             = if(!is.na(ev_secondary)) ev_secondary else 0,
-    n_ev_total                 = total_ev,
+    n_ev_total                 = ev_count,
+    n_hybrid_total             = hybrid_count,
+    n_elec_total               = elec_count,
     n_hybrid_gas               = if(!is.na(hybrid_gas)) hybrid_gas else 0,
     n_hybrid_diesel            = if(!is.na(hybrid_diesel)) hybrid_diesel else 0,
     ev_rate_all                = total_ev / n_total_raw,
