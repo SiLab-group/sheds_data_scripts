@@ -74,7 +74,7 @@ md_708_summary <- bind_rows(
     )
   })
 ) %>%
-  filter(year %in% c(2019, 2020, 2021, 2023, 2025))
+  filter(year %in% c(2016, 2017, 2018,2019, 2020, 2021, 2023, 2025))
 
 md_708_summary %>%
   mutate(
@@ -95,6 +95,9 @@ stata_car_history <- build_car_history_stata(waves)
 
 
 results_stata <- bind_rows(
+  analyze_ev_ownership_data(stata_car_history, 2016, waves),
+  analyze_ev_ownership_data(stata_car_history, 2017, waves),
+  analyze_ev_ownership_data(stata_car_history, 2018, waves),
   analyze_ev_ownership_data(stata_car_history, 2019, waves),
   analyze_ev_ownership_data(stata_car_history, 2020, waves),
   analyze_ev_ownership_data(stata_car_history, 2021, waves),
@@ -148,21 +151,52 @@ sheds_md708_pop <- md_708_summary %>%
   select(year, type, percentage, source)
 
 # SHEDS history: divide by n_car_owners, include hybrids
-sheds_history_pop <- results_stata %>%
-  filter(year %in% c(2019, 2020, 2021, 2023, 2025)) %>%
-  mutate(n_hybrid_total = n_hybrid_gas + n_hybrid_diesel) %>%
-  select(year, n_ev_main, n_ev_secondary, n_hybrid_total, n_total_vehicles_mob2) %>%
-  pivot_longer(cols = c(n_ev_main, n_ev_secondary, n_hybrid_total),
-               names_to = "type", values_to = "count") %>%
+# sheds_history_pop <- results_stata %>%
+#  filter(year %in% c(2019, 2020, 2021, 2023, 2025)) %>%
+#  mutate(n_hybrid_total = n_hybrid_gas + n_hybrid_diesel) %>%
+#  select(year, n_ev_main, n_ev_secondary, n_hybrid_total, n_total_vehicles_mob2) %>%
+#  pivot_longer(cols = c(n_ev_main, n_ev_secondary, n_hybrid_total),
+#               names_to = "type", values_to = "count") %>%
+#  mutate(
+#    percentage = (count / n_total_vehicles_mob2) * 100,
+#    type       = recode(type,
+#                        "n_ev_main"      = "Pure Electric (Main)",
+#                        "n_ev_secondary" = "Pure Electric (Secondary)",
+#                        "n_hybrid_total" = "Hybrid"),
+#    source     = "SHEDS (History)"
+#  ) %>%
+#  select(year, type, percentage, source)
+
+sheds_history_pop <- bind_rows(
+  # 2019+ : separate elec and hybrid counts
+  results_stata %>%
+    filter(year %in% c(2019, 2020, 2021, 2023, 2025)) %>%
+    select(year, n_elec_total, n_hybrid_total, n_total_vehicles_mob2) %>%
+    pivot_longer(cols = c(n_elec_total, n_hybrid_total),
+                 names_to = "type", values_to = "count") %>%
+    mutate(
+      percentage = (count / n_total_vehicles_mob2) * 100,
+      type       = recode(type,
+                          "n_elec_total"   = "Pure Electric",
+                          "n_hybrid_total" = "Hybrid"),
+      source     = "SHEDS (History)"
+    ),
+
+  # 2016-2018: mixed EV+hybrid category
+  results_stata %>%
+    filter(year %in% c(2016, 2017, 2018)) %>%
+    mutate(
+      count      = n_ev_total,
+      percentage = (n_ev_total / n_total_vehicles_mob2) * 100,
+      type       = "EV+Hybrid (mixed)",
+      source     = "SHEDS (History)"
+    ) %>%
+    select(year, type, count, n_total_vehicles_mob2, percentage, source)
+) %>%
   mutate(
-    percentage = (count / n_total_vehicles_mob2) * 100,
-    type       = recode(type,
-                        "n_ev_main"      = "Pure Electric (Main)",
-                        "n_ev_secondary" = "Pure Electric (Secondary)",
-                        "n_hybrid_total" = "Hybrid"),
-    source     = "SHEDS (History)"
-  ) %>%
-  select(year, type, percentage, source)
+    source = factor(source, levels = c("FSO (Official)", "SHEDS (md_708)", "SHEDS (History)")),
+    type   = factor(type,   levels = c("Hybrid", "Pure Electric", "EV+Hybrid (mixed)"))
+  )
 
 print(sheds_md708_pop)
 print(sheds_history_pop)

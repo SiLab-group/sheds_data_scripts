@@ -271,7 +271,7 @@ analyze_ev_ownership_data <- function(data_history, year, raw_waves ) {
     new_respondents            = new_car_owners,
     n_total_vehicles_mob2      = total_vehicles_mob2,   # sum of cars from history
     n_total_vehicles_md220     = total_vehicles_md220,  # sum of cars from md_220
-    ev_rate_vehicles           = total_ev / n_total_vehicles_mob2
+    ev_rate_vehicles           = elec_count / n_total_vehicles_mob2
   )
 }
 
