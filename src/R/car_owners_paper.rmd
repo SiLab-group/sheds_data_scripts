@@ -19,6 +19,10 @@ library(extrafont)
 current_dir <- getwd()
 source(file.path(current_dir,"src","R","utils.R"))
 
+library(yaml)
+config <- yaml.load_file(file.path(current_dir, "config.yaml"))
+data_dir <- config$paths$data_dir
+
 # Define years
 years <- c(2016, 2017, 2018, 2019, 2020, 2021, 2023, 2025)
 #years <- c(2016, 2017, 2018, 2019, 2020, 2021, 2023 )
@@ -26,7 +30,7 @@ years <- c(2016, 2017, 2018, 2019, 2020, 2021, 2023, 2025)
 
 waves <- list()
 for (year in years) {
-  file_path <- paste0("/home/amy/tmp/sheds_data/files/SHEDS", year, ".sav")
+  file_path <- file.path(data_dir, config$sheds_files[[as.character(year)]])
   wave_name <- as.character(year)   # "2025" not "w2025"
   waves[[wave_name]] <- read_clean_sheds(file_path)
 }

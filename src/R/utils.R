@@ -36,12 +36,15 @@ save_plot <- function(plot, filename, width = 12, height = 8,path = "plots") {
   if (!dir.exists(path)) {
     dir.create(path, recursive = TRUE)
   }
+  pdf_device <- if (capabilities("cairo")) cairo_pdf else pdf
+  eps_device <- if (capabilities("cairo")) cairo_ps  else function(f, ...) postscript(f, ..., onefile = FALSE)
+
   ggsave(
     filename = file.path(path, paste0(filename, ".pdf")),
     plot = plot,
     width = width,
     height = height,
-    device = cairo_pdf
+    device = pdf_device
   )
 
   # Save as EPS
@@ -50,7 +53,7 @@ save_plot <- function(plot, filename, width = 12, height = 8,path = "plots") {
     plot = plot,
     width = width,
     height = height,
-    device = cairo_ps
+    device = eps_device
   )
 
   cat(paste0("Saved: ", filename, ".pdf and .eps\n"))
@@ -142,14 +145,14 @@ analyze_ev_ownership_data <- function(data_history, year, raw_waves ) {
 
   n_total_raw <- nrow(raw_waves[[as.character(year)]])
 
-  # --- Total population meaning sum of household members ---
+  # Total population meaning sum of household members
   total_population <- if("md_hhgr" %in% names(data_finished)) {
     sum(data_finished$md_hhgr, na.rm = TRUE)
   } else {
     nrow(data_finished)
   }
 
-  # --- Car owner population (only car owners) ---
+  # Car owner population (only car owners)
   car_owner_population <- if("md_hhgr" %in% names(data_finished)) {
     sum(data_finished$md_hhgr[data_finished$mob2_1 >= 1 & data_finished$mob2_1 < 90], na.rm = TRUE)
   } else {
@@ -190,8 +193,6 @@ analyze_ev_ownership_data <- function(data_history, year, raw_waves ) {
     NA
   }
 
-
-  # Fixed: use mob2_e_filled instead of mob2_e, and == 8 (engine type) instead of == 1
   ev_secondary <- if("mob2_e_filled" %in% names(data_finished)) {
     data_finished %>% filter(mob2_1 > 0 & mob2_1 < 90) %>% filter(mob2_e_filled == 1) %>% nrow()
   } else {
@@ -221,7 +222,6 @@ analyze_ev_ownership_data <- function(data_history, year, raw_waves ) {
         na.rm = TRUE)
   } else NA
 
-  # Stata logic:
   car_owners_df <- data_finished %>% filter(mob2_1 > 0 & mob2_1 < 90)
 
   elec_count <- car_owners_df %>%
@@ -362,7 +362,7 @@ validate_car_history <- function(car_history, label, all_waves,
           align = "r", format.args = list(big.mark = ",")) %>%
     print()
 
-  # ── md_708 cross-check (Intervista "Elektroauto im HH") ──────────────────
+  # md_708 cross-check (Intervista "Elektroauto im HH")
   # md_708 is collected every wave by the panel provider regardless of survey
   # flow, making it an independent ground-truth for EV presence in the household.
   # We compare it wave-by-wave against our mob3_3_filled == 8 derived count.
@@ -386,7 +386,7 @@ validate_car_history <- function(car_history, label, all_waves,
       pct_electric  = round(n_electric / n_car_owners * 100, 1)
     )
 
-  cat("\n--- md_708 (Intervista EV flag) vs mob3_3_filled == 8 ---\n")
+  cat("\n md_708 (Intervista EV flag) vs mob3_3_filled == 8 \n")
   md708_cmp %>%
     select(year_wave, n_car_owners,
            n_md708, pct_md708,

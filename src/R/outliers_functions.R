@@ -288,7 +288,6 @@ detect_inconsistencies <- function(data) {
 }
 
 
-
 run_outlier_detection <- function(data) {
   scale_vars <- c()
 

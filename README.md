@@ -43,8 +43,14 @@ pip install pandas numpy pyreadstat matplotlib seaborn
 ### R
 
 ```r
-install.packages(c("haven", "tidyverse", "zoo", "scales"))
+install.packages(c("haven", "tidyverse", "zoo", "scales", "yaml", "skimr", "corrplot", "ggthemes", "kableExtra", "extrafont", "patchwork", "forcats"))
 ```
+
+Saving plots as PDF/EPS requires Cairo. Install the system library for your OS first, then `install.packages("Cairo")` in R:
+
+- **macOS:** install [XQuartz](https://www.xquartz.org), then `brew install cairo`
+- **Linux (Debian/Ubuntu):** `sudo apt install libcairo2-dev libxt-dev`
+- **Windows:** Cairo is bundled with R — no extra steps needed.
 
 ## Loading SHEDS Data
 

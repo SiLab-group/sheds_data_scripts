@@ -15,7 +15,9 @@ library(ggthemes)     # Themes
 # Read SPSS file
 source(file.path(getwd(),"src","R","utils.R"))
 
-data_path <- "/path/to/data/SHEDS2025.sav"
+library(yaml)
+config <- yaml.load_file(file.path(getwd(), "config.yaml"))
+data_path <- file.path(config$paths$data_dir, config$sheds_files[["2025"]])
 sheds <- read_clean_sheds(data_path)
 head(sheds)
 ```
