@@ -112,6 +112,22 @@ sheds_clean %>%
   labs(title = "Regional Distribution",
        x = "Region", y = "Count") +
   theme_minimal()
+
+sheds_clean %>%
+  filter(finished == 1) %>%
+  count(region) %>%
+  mutate(
+    pct = n / sum(n) * 100,
+    region_name = apply_spss_labels(., "region", sheds),
+    label = sprintf("%s (%.1f%%)", region_name, pct)
+  ) %>%
+  ggplot(aes(x = reorder(label, n), y = n)) +
+  geom_col(fill = "forestgreen") +
+  geom_text(aes(label = sprintf("%.1f%%", pct)), hjust = -0.1, size = 3.5) +
+  coord_flip() +
+  labs(title = "Regional Distribution",
+       x = "Region", y = "Count") +
+  theme_minimal()
 ```
 
 ```{r}

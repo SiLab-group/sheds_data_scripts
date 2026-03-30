@@ -1,4 +1,5 @@
 config.yaml
+.venv/
 *.nb.html
 *.eps
 *.pdf

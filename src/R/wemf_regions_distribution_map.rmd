@@ -17,8 +17,29 @@ library(bfsMaps)
 current_dir <- getwd()
 # Set your bfsMaps data path
 source(file.path(current_dir,"src","R","utils.R"))
-options(bfsMaps.base="/home/amy/MapData/2022_GEOM_TK")
 
+library(yaml)
+
+config <- yaml.load_file("config.yaml")
+options(bfsMaps.base = config$paths$geodata_bezirke)
+#options(bfsMaps.base="/home/amy/MapData/2022_GEOM_TK")
+
+
+# Load SHEDS data and compute region percentages
+data_path <- file.path(config$paths$data_dir, config$sheds_files[["2025"]])
+sheds <- read_clean_sheds(data_path)
+sheds <- sheds[sheds$screen != 3, ]
+
+region_pct <- sheds |>
+  filter(!is.na(region)) |>
+  count(region) |>
+  mutate(pct = n / sum(n) * 100)
+
+# Build legend labels dynamically
+legend_labels <- wemf_regions |>
+  left_join(region_pct, by = c("region_id" = "region")) |>
+  mutate(label = sprintf("%s (%.1f%%)", region_name, replace_na(pct, 0))) |>
+  pull(label)
 
 # WEMF Region definitions
 # 1 Suisse romande     (Zones 11-16)
@@ -273,13 +294,13 @@ create_wemf_map <- function() {
 
   # Create legend labels with percentages
   # These percentages are extracted from the data but hardcoded here to not process the data again
-  legend_labels <- c(
-    "Suisse romande (22.3%)",
-    "Alpen und Voralpen (20.3%)",
-    "Westmittelland (21.5%)",
-    "Ostmittelland (25.5%)",
-    "Svizzera italiana (10.4%)"
-  )
+  #legend_labels <- c(
+  #  "Suisse romande (22.3%)",
+  #  "Alpen und Voralpen (20.3%)",
+  #  "Westmittelland (21.5%)",
+  #  "Ostmittelland (25.5%)",
+  #  "Svizzera italiana (10.4%)"
+  #)
   # Plot
   p <- ggplot() +
     geom_sf(data = bezirke_wemf, aes(fill = factor(region_id)),
