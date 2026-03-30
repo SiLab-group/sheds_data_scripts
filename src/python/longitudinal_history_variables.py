@@ -112,77 +112,6 @@ def extract_year(filepath: Path, year: int, target_vars: list,
 
     return result
 
-
-def build_car_history(all_waves_dict: Dict[str, pd.DataFrame]) -> pd.DataFrame:
-    """
-    Build car history across all waves with carry-forward logic.
-    Equivalent to R version using zoo::na.locf for forward fill.
-
-    Parameters
-    ----------
-    all_waves_dict : dict
-        Dictionary mapping year strings to DataFrames (e.g., {"2016": df2016, ...})
-
-    Returns
-    -------
-    pd.DataFrame
-        Combined car history with mob3_3_filled and mob2_e_filled columns
-    """
-    fuel_type_to_code = {
-        'Gasoline': 1, 'gasoline': 1, 'Benzin': 1, 'Essence': 1,
-        'Diesel': 2, 'diesel': 2,
-        'Natural Gas': 3, 'natural gas': 3, 'Erdgas': 3, 'Gaz naturel': 3,
-        'LPG': 4, 'lpg': 4,
-        'Hybrid gasoline': 5, 'hybrid gasoline': 5, 'Hybride essence': 5,
-        'Plug In Hybrid': 6, 'Plug-in Hybrid': 6, 'plug in hybrid': 6,
-        'Hybrid diesel': 7, 'hybrid diesel': 7, 'Hybride diesel': 7,
-        'Electric': 8, 'electric': 8, 'Électrique': 8, 'Elektrisch': 8,
-        'Other': 9, 'other': 9, 'Autre': 9, 'Andere': 9,
-    }
-
-    dfs = []
-
-    for year, df in all_waves_dict.items():
-        cols_to_select = ['id', 'mob2_1', 'mob3_3']
-        optional_cols = ['old', 'mob2_e', 'mob3_change']
-
-        for col in optional_cols:
-            if col in df.columns:
-                cols_to_select.append(col)
-
-        available_cols = [c for c in cols_to_select if c in df.columns]
-        subset = df[available_cols].copy()
-        subset['year_wave'] = int(year)
-
-        if 'mob3_3' in subset.columns and subset['mob3_3'].dtype == object:
-            subset['mob3_3'] = subset['mob3_3'].map(fuel_type_to_code)
-
-        dfs.append(subset)
-
-    car_history = pd.concat(dfs, ignore_index=True)
-    car_history = car_history.sort_values(['id', 'year_wave'])
-
-    numeric_cols = ['mob2_1', 'mob3_3', 'mob2_e', 'mob3_change', 'old']
-    for col in numeric_cols:
-        if col in car_history.columns:
-            car_history[col] = pd.to_numeric(car_history[col], errors='coerce')
-
-    # Carry forward last known mob3_3 (only positive values)
-    car_history['mob3_3_filled'] = car_history['mob3_3'].where(
-        car_history['mob3_3'].notna() & (car_history['mob3_3'] > 0)
-    )
-    car_history['mob3_3_filled'] = car_history.groupby('id')['mob3_3_filled'].ffill()
-
-    # Carry forward last known mob2_e (only non-negative values)
-    if 'mob2_e' in car_history.columns:
-        car_history['mob2_e_filled'] = car_history['mob2_e'].where(
-            car_history['mob2_e'].notna() & (car_history['mob2_e'] >= 0)
-        )
-        car_history['mob2_e_filled'] = car_history.groupby('id')['mob2_e_filled'].ffill()
-
-    return car_history
-
-
 def build_accom_history(all_waves_dict: Dict[str, pd.DataFrame]) -> pd.DataFrame:
     """
     Build accommodation (owner/tenant) history across all waves with carry-forward logic.
@@ -276,13 +205,6 @@ def main():
         history_df.to_pickle(data_dir / "sheds_identifier_history.pkl")
         print(f"  Saved: sheds_identifier_history.csv / .pkl")
 
-    # Car (fuel type) history ---
-    car_history = build_car_history(all_waves_dict)
-    print(f"\nCar history — records: {len(car_history)}, unique IDs: {car_history['id'].nunique()}")
-    car_history.to_csv(data_dir / "sheds_car_history.csv", index=False)
-    car_history.to_pickle(data_dir / "sheds_car_history.pkl")
-    print(f"  Saved: sheds_car_history.csv / .pkl")
-
     # Accommodation (owner/tenant) history
     accom_history = build_accom_history(all_waves_dict)
     print(f"\nAccom history — records: {len(accom_history)}, unique IDs: {accom_history['id'].nunique()}")
@@ -302,7 +224,7 @@ def main():
     print("\nOwner / Tenant counts per year (accom1_filled):")
     print(counts.to_string())
 
-    return history_df, car_history, accom_history
+    return history_df, accom_history
 
 
 if __name__ == "__main__":
