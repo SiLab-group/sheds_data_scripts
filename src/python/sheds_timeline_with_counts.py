@@ -7,15 +7,19 @@ are available in each survey year, with counts displayed on each bar.
 Input: sheds_questions_up2025.csv
 """
 
+import yaml
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 import re
+from pathlib import Path
 from matplotlib.patches import Patch
 
-# Path for the generated file of the question identifiers vs occurrence 0/1 in the corresponding year
-# This file is located in this repository in the root folder hence ../../
-INPUT_FILE = '../../sheds_questions_up2025.csv'
+_root = Path(__file__).parents[2]
+with open(_root / "config.yaml") as f:
+    _config = yaml.safe_load(f)
+
+INPUT_FILE = _root / _config["paths"]["questions_csv"]
 
 # First we define the category names
 # Category labels (prefix -> readable name)

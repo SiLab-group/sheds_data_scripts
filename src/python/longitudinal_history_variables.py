@@ -3,29 +3,20 @@ SHEDS Identifier History - Wide Format
 One row per ID + year with variable answers as columns
 """
 
+import yaml
 import pandas as pd
 import pyreadstat
 from pathlib import Path
 
+_root = Path(__file__).parents[2]
+with open(_root / "config.yaml") as f:
+    _config = yaml.safe_load(f)
 
-data_dir = Path("/home/amy/tmp/sheds_data/files")  # Adjust for the path to the files
+data_dir = Path(_config["paths"]["data_dir"])
+sheds_files = _config["sheds_files"]
 
 # Target variables to find and make columns of
 target_vars = ["accom3", "accom5", "heat5a1_2", "accom4a3", "accom9a1_1","accom9a1_2","accom9a1_3","accom9a1_4"]
-
-# SHEDS data files by year
-sheds_files = {
-    2016: "SHEDS2016.sav",
-    2017: "SHEDS2017.sav",
-    2018: "SHEDS2018.sav",
-    2019: "SHEDS2019.sav",
-    2020: "SHEDS2020.sav",
-    2021: "SHEDS2021.sav",
-    2022: "SHEDS2022.sav",
-    2023: "SHEDS2023.sav",
-    2024: "SHEDS2024.sav",
-    2025: "SHEDS2025.sav",
-}
 
 
 def read_clean_sheds(filepath: str) -> tuple[pd.DataFrame, pyreadstat.metadata_container]:

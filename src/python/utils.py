@@ -82,10 +82,10 @@ def save_plot(plot, path: str = "plots", filename: str = "plot",
     plot.set_size_inches(width, height)
     
     # Save as PDF
-    plot.savefig(output_path / f"{filename}.pdf", format='pdf', bbox_inches='tight')
-    
+    plot.savefig(output_path / f"{filename}.pdf", format='pdf', bbox_inches='tight', facecolor='white')
+
     # Save as EPS
-    plot.savefig(output_path / f"{filename}.eps", format='eps', bbox_inches='tight')
+    plot.savefig(output_path / f"{filename}.eps", format='eps', bbox_inches='tight', facecolor='white')
     
     print(f"Saved: {filename}.pdf and .eps")
 
