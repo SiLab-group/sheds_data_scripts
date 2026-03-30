@@ -292,15 +292,6 @@ create_wemf_map <- function() {
     st_as_sf(GetMap("gde.see"))
   }, error = function(e) NULL)
 
-  # Create legend labels with percentages
-  # These percentages are extracted from the data but hardcoded here to not process the data again
-  #legend_labels <- c(
-  #  "Suisse romande (22.3%)",
-  #  "Alpen und Voralpen (20.3%)",
-  #  "Westmittelland (21.5%)",
-  #  "Ostmittelland (25.5%)",
-  #  "Svizzera italiana (10.4%)"
-  #)
   # Plot
   p <- ggplot() +
     geom_sf(data = bezirke_wemf, aes(fill = factor(region_id)),
