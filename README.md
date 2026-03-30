@@ -197,3 +197,23 @@ results <- bind_rows(
 | 8 | Electric |
 | 9 | Other |
 
+
+## Citation
+
+If you use this repository, please cite the following paper:
+
+```bibtex
+@TechReport{repec:irn:wpaper:26-05,
+    type={IRENE Working Papers},
+    institution={IRENE Institute of Economic Research},
+    author={Amy Liffey and Rene Schumann and Sylvain Weber and Mehdi Farsi},
+    title={The Swiss Household Energy Demand Survey: Panel updates and evidence after eight waves},
+    year={2026},
+    month={Mar},
+    number={26-05},
+    abstract={This paper serves as a comprehensive reference for users of the Swiss Household Energy Demand Survey (SHEDS). SHEDS was conducted annually from 2016 to 2021, followed by two waves in 2023 and 2025; two further waves are scheduled in 2027 and 2029. So far, it provides a panel dataset of eight waves that span a 9-year period. We present recent updates to the panel, including data processing and data quality guidelines, and provide an overview of its evolving structure. In addition, we provide two applications that illustrate the research possibilities enabled by SHEDS. We use the first application to provide a description of how the data can be used to inform an agent-based model. The second application is a descriptive study of the evolution of car ownership patterns showcasing the potential of the survey's longitudinal dimension.},
+    keywords={},
+    doi={None},
+    url={https://ideas.repec.org/p/irn/wpaper/26-05.html},
+}
+```
