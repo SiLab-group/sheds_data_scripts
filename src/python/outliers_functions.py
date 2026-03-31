@@ -399,6 +399,7 @@ def plot_completion_distribution(threshold_data: pd.DataFrame, wave_name: str = 
     if show_plot:
         plt.tight_layout()
         plt.show()
+        plt.close(fig)
 
     # Print summary statistics
     print("\n=== COMPLETION TIME SUMMARY ===")

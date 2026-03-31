@@ -86,7 +86,8 @@ def save_plot(plot, path: str = "plots", filename: str = "plot",
 
     # Save as EPS
     plot.savefig(output_path / f"{filename}.eps", format='eps', bbox_inches='tight', facecolor='white')
-    
+
+    plt.close(plot)
     print(f"Saved: {filename}.pdf and .eps")
 
 
