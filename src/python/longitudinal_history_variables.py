@@ -8,6 +8,7 @@ import pandas as pd
 import pyreadstat
 from pathlib import Path
 from typing import Dict
+from utils import read_clean_sheds, build_car_history, conditional_ffill
 
 _root = Path(__file__).parents[2]
 with open(_root / "config.yaml") as f:
@@ -18,27 +19,6 @@ sheds_files = _config["sheds_files"]
 
 # Target variables to find and make columns of
 target_vars = ["accom3", "accom5", "heat5a1_2", "accom4a3", "accom9a1_1","accom9a1_2","accom9a1_3","accom9a1_4"]
-
-
-def read_clean_sheds(filepath: str) -> tuple[pd.DataFrame, pyreadstat.metadata_container]:
-    """
-    Read SPSS file and filter out screened respondents (screen == 3).
-    Equivalent to R's read_sav() with haven - keeps numeric codes.
-
-    Parameters
-    ----------
-    filepath : str
-        Path to the .sav SPSS file
-
-    Returns
-    -------
-    pd.DataFrame
-        Cleaned dataframe with numeric codes preserved
-    """
-    df, meta = pyreadstat.read_sav(filepath,
-                                   encoding='UTF-8', apply_value_formats=False)
-    df = df[df['screen'] != 3].copy()
-    return df, meta
 
 
 def extract_year(filepath: Path, year: int, target_vars: list,
@@ -79,7 +59,6 @@ def extract_year(filepath: Path, year: int, target_vars: list,
     df_cols_lower = {c.lower(): c for c in df.columns}
     available_vars = []
     col_mapping = {}
-    print(df.columns)
 
     for var in target_vars:
         if var in df.columns:
@@ -155,21 +134,34 @@ def build_accom_history(all_waves_dict: Dict[str, pd.DataFrame]) -> pd.DataFrame
         if col in accom_history.columns:
             accom_history[col] = pd.to_numeric(accom_history[col], errors='coerce')
 
-    # Carry forward last known accom1 (valid values: 1=Owner, 2=Tenant, 3=Cooperative)
-    # Excludes -1 (dnk) and -2 (dna, i.e. question skipped because accom_change=0)
+    print("\naccom1 value counts (before filling):")
+    for yr in [2016, 2017, 2018, 2019, 2020, 2021, 2023, 2025]:
+        subset = accom_history[accom_history['year_wave'] == yr]['accom1']
+        print(f"  {yr}: {subset.value_counts(dropna=False).sort_index().to_dict()}")
+
+    # Mask invalid codes (-1 dnk, -2 dna) before filling
     accom_history['accom1_filled'] = accom_history['accom1'].where(
         accom_history['accom1'].notna() & (accom_history['accom1'] > 0)
     )
-    accom_history['accom1_filled'] = accom_history.groupby('id')['accom1_filled'].ffill()
+    # Carry forward only into rows where original accom1 was -2 (DNA),
+    # and only when accom_change != 1 (no move/change reported)
+    accom_history['accom1_filled'] = (
+        accom_history.groupby('id', group_keys=False)
+        .apply(lambda g: conditional_ffill(
+            g, 'accom1_filled', 'accom_change',
+            fill_when=(
+                ((g['accom1'] == -2) & (g['year_wave'].isin([2018, 2019]))) |
+                (g['accom1'].isna() & (g['year_wave'] == 2020))
+            )
+        ))
+    )
 
     return accom_history
 
 
 def main():
     print("SHEDS Identifier History Extraction")
-    print("=" * 60)
     print(f"Target variables: {', '.join(target_vars)}")
-    print()
 
     # Read all waves once so we can pass to all functions
     all_waves_dict = {}
@@ -207,6 +199,15 @@ def main():
 
     # Accommodation (owner/tenant) history
     accom_history = build_accom_history(all_waves_dict)
+
+    # Merge target vars into accom history
+    if all_years:
+        accom_history = accom_history.merge(
+            history_df.rename(columns={'year': 'year_wave'}),
+            on=['id', 'year_wave'],
+            how='left'
+        )
+
     print(f"\nAccom history — records: {len(accom_history)}, unique IDs: {accom_history['id'].nunique()}")
     accom_history.to_csv(data_dir / "sheds_accom_history.csv", index=False)
     accom_history.to_pickle(data_dir / "sheds_accom_history.pkl")
@@ -224,7 +225,40 @@ def main():
     print("\nOwner / Tenant counts per year (accom1_filled):")
     print(counts.to_string())
 
-    return history_df, accom_history
+    # Car history
+    car_history = build_car_history(all_waves_dict)
+    print(f"\nCar history — records: {len(car_history)}, unique IDs: {car_history['id'].nunique()}")
+
+    # Total vehicles per wave: sum of mob2_1 values where mob2_1 > 0 and < 90
+    total_vehicles = {}
+    for year, df in all_waves_dict.items():
+        if 'mob2_1' in df.columns:
+            mob2 = pd.to_numeric(df['mob2_1'], errors='coerce')
+            total_vehicles[int(year)] = mob2[(mob2 > 0) & (mob2 < 90)].sum()
+        else:
+            total_vehicles[int(year)] = None
+
+    # Fuel type / EV counts per year
+    fuel_label_map = {
+        1: 'Gasoline', 2: 'Diesel', 3: 'Natural Gas', 4: 'LPG',
+        5: 'Hybrid Gas', 6: 'Plug-in Hybrid', 7: 'Hybrid Diesel',
+        8: 'Electric', 9: 'Other'
+    }
+    fuel_counts = (
+        car_history
+        .groupby(['year_wave', 'mob3_3_filled'])
+        .size()
+        .unstack(fill_value=0)
+        .rename(columns=fuel_label_map)
+    )
+    fuel_counts['Total Vehicles'] = pd.Series(total_vehicles)
+    fuel_counts['EV %'] = (fuel_counts.get('Electric', 0) / fuel_counts['Total Vehicles'] * 100).round(2)
+    hybrid_cols = [c for c in ['Hybrid Gas', 'Plug-in Hybrid', 'Hybrid Diesel'] if c in fuel_counts.columns]
+    fuel_counts['Hybrid %'] = (fuel_counts[hybrid_cols].sum(axis=1) / fuel_counts['Total Vehicles'] * 100).round(2)
+    print("\nFuel type counts per year (mob3_3_filled):")
+    print(fuel_counts.to_string())
+
+    return history_df, accom_history, car_history
 
 
 if __name__ == "__main__":

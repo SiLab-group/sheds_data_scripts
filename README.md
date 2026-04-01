@@ -52,6 +52,35 @@ Saving plots as PDF/EPS requires Cairo. Install the system library for your OS f
 - **Linux (Debian/Ubuntu):** `sudo apt install libcairo2-dev libxt-dev`
 - **Windows:** Cairo is bundled with R — no extra steps needed.
 
+## Configuration
+
+Before running any scripts, create `config.yaml` and set the paths for your machine. Example:
+
+```yaml
+paths:
+  data_dir: "/path/to/your/sheds_data/"   # folder containing the .sav files
+  plots_dir: "plots"                       # output folder for saved figures
+  questions_csv: "sheds_questions_up2025.csv"
+  geodata_bezirke: ""                      # path to BFS Bezirke shapefile; leave empty to auto-download
+
+sheds_files:
+  "2016": "SHEDS2016.sav"
+  "2017": "SHEDS2017.sav"
+  "2018": "SHEDS2018.sav"
+  "2019": "SHEDS2019.sav"
+  "2020": "SHEDS2020.sav"
+  "2021": "SHEDS2021.sav"
+  "2023": "SHEDS2023.sav"
+  "2025": "SHEDS2025.sav"
+```
+
+- **`data_dir`** — absolute path to the directory where your SHEDS `.sav` files are stored. All scripts read data from here.
+- **`sheds_files`** — maps each wave year to its filename inside `data_dir`. Remove entries for waves you do not have.
+- **`plots_dir`** — relative or absolute path where figures are saved by `save_plot()`. Created automatically if it does not exist.
+- **`geodata_bezirke`** — only needed for the region distribution map. Leave empty to auto-download.
+
+> **Note:** `config.yaml` contains your local paths and is listed in `.gitignore` — do not commit it.
+
 ## Loading SHEDS Data
 
 ### R
