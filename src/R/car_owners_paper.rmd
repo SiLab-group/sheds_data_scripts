@@ -1,0 +1,774 @@
+---
+title: "Car ownership investigation"
+output: html_notebook
+---
+
+```{r}
+
+library(tidyverse)
+library(patchwork)
+library(scales)
+library(haven)        # Read SPSS files
+library(dplyr)        # Data manipulation
+library(ggplot2)      # Visualizations
+library(tidyr)        # Data reshaping
+library(scales)       # Scale functions for plots
+library(forcats)      # Factor manipulation
+library(extrafont)
+
+current_dir <- getwd()
+source(file.path(current_dir,"src","R","utils.R"))
+
+library(yaml)
+config <- yaml.load_file(file.path(current_dir, "config.yaml"))
+data_dir <- config$paths$data_dir
+
+# Define years
+years <- c(2016, 2017, 2018, 2019, 2020, 2021, 2023, 2025)
+#years <- c(2016, 2017, 2018, 2019, 2020, 2021, 2023 )
+
+
+waves <- list()
+for (year in years) {
+  file_path <- file.path(data_dir, config$sheds_files[[as.character(year)]])
+  wave_name <- as.character(year)   # "2025" not "w2025"
+  waves[[wave_name]] <- read_clean_sheds(file_path)
+}
+
+car_history <- build_car_history_stata(waves)
+
+car_history %>%
+  filter(year_wave == 2025) %>%
+  summarise(
+    original_na = sum(is.na(mob3_3)),
+    filled_na   = sum(is.na(mob3_3_filled)),
+    recovered   = sum(is.na(mob3_3)) - sum(is.na(mob3_3_filled))
+  ) %>%
+  print()
+
+car_history_2025 <- car_history %>%
+  filter(year_wave == 2025) %>%
+  select(id, mob3_3_filled, mob2_e_filled)
+
+print(car_history_2025)
+
+car_data <- waves[["2025"]] %>%
+  left_join(car_history_2025, by = "id") %>%
+  mutate(
+    car_owner = case_when(
+      mob2_1 == 0  ~ "No car",
+      mob2_1 >= 1  ~ "Car owner",
+      TRUE         ~ NA_character_
+    ),
+    num_cars = mob2_1,
+
+    # Raw engine type (only answered on car change year)
+    engine_type_raw = case_when(
+      mob3_3 == 1 ~ "Gasoline",
+      mob3_3 == 2 ~ "Diesel",
+      mob3_3 == 6 ~ "Hybrid gasoline",
+      mob3_3 == 7 ~ "Hybrid diesel",
+      mob3_3 == 8 ~ "Electric",
+      mob3_3 == 3 ~ "Natural gas",
+      mob3_3 == 9 ~ "Other",
+      TRUE        ~ NA_character_
+    ),
+
+    # Forward-filled engine type (from build_car_history)
+    engine_type = case_when(
+      mob3_3_filled == 1 ~ "Gasoline",
+      mob3_3_filled == 2 ~ "Diesel",
+      mob3_3_filled == 6 ~ "Hybrid gasoline",
+      mob3_3_filled == 7 ~ "Hybrid diesel",
+      mob3_3_filled == 8 ~ "Electric",
+      mob3_3_filled == 3 ~ "Natural gas",
+      mob3_3_filled == 9 ~ "Other",
+      TRUE               ~ NA_character_
+    ),
+
+    age_group = case_when(
+      agegr == 1 ~ "18-34",
+      agegr == 2 ~ "35-54",
+      agegr == 3 ~ "55+",
+      TRUE       ~ NA_character_
+    ),
+
+    gender = case_when(
+      sex == 0 ~ "Male",
+      sex == 1 ~ "Female",
+      sex == 2 ~ "Other",
+      TRUE     ~ NA_character_
+    ),
+
+    region_label = case_when(
+      region == 1 ~ "Suisse romande",
+      region == 2 ~ "Alpen und\nVoralpen",
+      region == 3 ~ "Westmittelland",
+      region == 4 ~ "Ostmittelland",
+      region == 5 ~ "Ticino",
+      TRUE        ~ NA_character_
+    ),
+
+    living_area = case_when(
+      md_wohntyp3_alt == 1 ~ "City",
+      md_wohntyp3_alt == 2 ~ "Agglomeration",
+      md_wohntyp3_alt == 3 ~ "Countryside",
+      TRUE                 ~ NA_character_
+    ),
+
+    residence_type = case_when(
+      residtype == 1 ~ "Tenant",
+      residtype == 2 ~ "Owner",
+      TRUE           ~ NA_character_
+    ),
+
+    income_level = case_when(
+      seco5 ==  1 ~ "≤3,000",
+      seco5 ==  2 ~ "3,000-4,499",
+      seco5 ==  3 ~ "4,500-5,999",
+      seco5 ==  4 ~ "6,000-8,999",
+      seco5 ==  5 ~ "9,000-12,000",
+      seco5 ==  6 ~ ">12,000",
+      seco5 == -3 ~ "Prefer not to say",
+      seco5 == -1 ~ "Don't know",
+      TRUE        ~ NA_character_
+    ),
+
+    household_size = rowSums(select(., starts_with("seco1b_")), na.rm = TRUE),
+
+    annual_km = case_when(
+      mob7a ==  1 ~ "≤5,000 km",
+      mob7a ==  2 ~ "5,001-10,000 km",
+      mob7a ==  3 ~ "10,001-15,000 km",
+      mob7a ==  4 ~ "15,001-20,000 km",
+      mob7a ==  5 ~ "20,001-25,000 km",
+      mob7a ==  6 ~ "25,001-30,000 km",
+      mob7a ==  7 ~ "30,001-35,000 km",
+      mob7a ==  8 ~ "35,001-40,000 km",
+      mob7a ==  9 ~ "40,001-45,000 km",
+      mob7a == 10 ~ "45,001-50,000 km",
+      mob7a == 11 ~ ">50,000 km",
+      mob7a == -1 ~ "Don't know",
+      TRUE        ~ NA_character_
+    ),
+
+    distance_cat = case_when(
+      mob7a %in% c(1, 2)                ~ "Low\n(≤10,000 km/year)",
+      mob7a %in% c(3, 4, 5)             ~ "Medium\n(10,000-25,000 km/year)",
+      mob7a %in% c(6, 7, 8, 9, 10, 11) ~ "High\n(>25,000 km/year)",
+      mob7a == -1                        ~ "Unknown",
+      TRUE                               ~ NA_character_
+    )
+  ) %>%
+  mutate(
+    age_group    = factor(age_group,    levels = c("18-34", "35-54", "55+")),
+    income_level = factor(income_level, levels = c("≤3,000", "3,000-4,499",
+                                                    "4,500-5,999", "6,000-8,999",
+                                                    "9,000-12,000", ">12,000",
+                                                    "Don't know", "Prefer not to say")),
+    distance_cat = factor(distance_cat, levels = c("Low\n(≤10,000 km/year)",
+                                                    "Medium\n(10,000-25,000 km/year)",
+                                                    "High\n(>25,000 km/year)",
+                                                    "Unknown"))
+  )
+
+car_data %>%
+  mutate(
+    vehicle_class = case_when(
+      mob3_3_filled == 8 | mob2_e_filled %in% 1 ~ "Electric",
+      mob3_3_filled %in% c(5, 6, 7)             ~ "Hybrid",
+      mob3_3_filled == 1                         ~ "Gasoline",
+      mob3_3_filled == 2                         ~ "Diesel",
+      mob3_3_filled == 3                         ~ "Natural gas",
+      mob3_3_filled == 9                         ~ "Other",
+      TRUE                                       ~ "Unknown/NA"
+    )
+  ) %>%
+  filter(car_owner == "Car owner") %>%   # line 183 - remove the # comment
+  {
+    total <- nrow(.)
+    cat("Total car owners:", total, "\n\n")
+    count(., vehicle_class, sort = TRUE) %>%
+      mutate(pct = round(n / total * 100, 1))
+  } %>%
+  print()
+```
+
+Variables:
+
+```{r}
+# Define which demographics to include (TRUE/FALSE)
+DEMO_CONFIG <- list(
+  age_group    = list(include = TRUE,  label = "Age Group"),
+  gender       = list(include = FALSE, label = "Gender"),      # <-- Set to FALSE to exclude
+  living_area  = list(include = TRUE,  label = "Living Area"),
+  income       = list(include = TRUE,  label = "Income Level")
+)
+
+# Category orders and labels (controls bar sequence left-to-right)
+CATEGORY_CONFIG <- list(
+  age_group = list(
+    levels = c("18-34", "35-54", "55+")
+  ),
+  gender = list(
+    levels = c("Male", "Female")
+  ),
+  living_area = list(
+    levels = c("City", "Agglomeration", "Countryside")
+  ),
+  income = list(
+    levels = c("Low (≤4,500)", "Medium (4,500-9,000)", "High (>9,000)")
+  )
+)
+
+# Regression term labels (for LaTeX tables and forest plots)
+REGRESSION_LABELS <- list(
+  age_group = list(
+    "age_group35-54" = "Age: 35--54",
+    "age_group55+"   = "Age: 55+"
+  ),
+  gender = list(
+    "genderFemale" = "Gender: Female"
+  ),
+  living_area = list(
+    "living_areaAgglomeration" = "Area: Agglomeration",
+    "living_areaCountryside"   = "Area: Countryside"
+  ),
+  income = list(
+    "income_catMedium (4,500-9,000)" = "Income: Medium (4,500--9,000)",
+    "income_catHigh (>9,000)"        = "Income: High ($>$9,000)"
+  )
+)
+
+# Short labels for forest plots
+REGRESSION_LABELS_SHORT <- list(
+  age_group = list(
+    "age_group35-54" = "Age: 35–54",
+    "age_group55+"   = "Age: 55+"
+  ),
+  gender = list(
+    "genderFemale" = "Gender: Female"
+  ),
+  living_area = list(
+    "living_areaAgglomeration" = "Area: Agglomeration",
+    "living_areaCountryside"   = "Area: Countryside"
+  ),
+  income = list(
+    "income_catMedium (4,500-9,000)" = "Income: Medium",
+    "income_catHigh (>9,000)"        = "Income: High"
+  )
+)
+
+# Helper function to recode income
+recode_income <- function(x) case_when(
+  x %in% c("≤3,000", "3,000-4,499")      ~ "Low (≤4,500)",
+  x %in% c("4,500-5,999", "6,000-8,999") ~ "Medium (4,500-9,000)",
+  x %in% c("9,000-12,000", ">12,000")    ~ "High (>9,000)",
+  TRUE ~ NA_character_
+)
+
+# Get included demographics
+INCLUDED_DEMOS <- names(DEMO_CONFIG)[sapply(DEMO_CONFIG, function(x) x$include)]
+
+# Print configuration
+cat("\n=== Analysis Configuration ===\n")
+for (demo in INCLUDED_DEMOS) {
+  cat(sprintf("  ✓ %s\n", DEMO_CONFIG[[demo]]$label))
+}
+cat("\n")
+```
+
+check:
+```{r}
+valid_car    <- validate_car_history(car_history, "car_history_forward", waves)
+```
+
+Demographics:
+```{r}
+create_crosstab <- function(data, group_var) {
+  data %>%
+    filter(!is.na(!!sym(group_var)), !is.na(car_owner)) %>%
+    group_by(!!sym(group_var), car_owner) %>%
+    summarise(n = n(), .groups = "drop") %>%
+    group_by(!!sym(group_var)) %>%
+    mutate(
+      total = sum(n),
+      percentage = n / total * 100
+    ) %>%
+    ungroup()
+}
+
+car_by_age <- if ("age_group" %in% INCLUDED_DEMOS) create_crosstab(car_data, "age_group") else NULL
+car_by_gender <- if ("gender" %in% INCLUDED_DEMOS) create_crosstab(car_data, "gender") %>% filter(gender != "Other") else NULL
+car_by_region <- create_crosstab(car_data, "region_label")
+car_by_area <- if ("living_area" %in% INCLUDED_DEMOS) create_crosstab(car_data, "living_area") else NULL
+
+car_by_income <- if ("income" %in% INCLUDED_DEMOS) {
+  car_data %>%
+    filter(!is.na(income_level),
+           !income_level %in% c("Don't know", "Prefer not to say"),
+           !is.na(car_owner)) %>%
+    group_by(income_level, car_owner) %>%
+    summarise(n = n(), .groups = "drop") %>%
+    group_by(income_level) %>%
+    mutate(
+      total = sum(n),
+      percentage = n / total * 100
+    )
+} else NULL
+
+
+unique(car_by_area$living_area)
+
+income_simple_full <- if ("income" %in% INCLUDED_DEMOS) {
+  car_by_income %>%
+    mutate(income_cat = recode_income(income_level)) %>%
+    filter(!is.na(income_cat)) %>%
+    group_by(income_cat, car_owner) %>%
+    summarise(
+      n = sum(n),
+      total = sum(total),
+      percentage = n / total * 100,
+      .groups = "drop"
+    )
+} else NULL
+
+# Build combined data from included demographics
+combined_parts <- list()
+if ("age_group" %in% INCLUDED_DEMOS) {
+  combined_parts[[length(combined_parts) + 1]] <- car_by_age %>%
+    mutate(demographic = DEMO_CONFIG$age_group$label,
+           category = as.character(age_group))
+}
+if ("living_area" %in% INCLUDED_DEMOS) {
+  combined_parts[[length(combined_parts) + 1]] <- car_by_area %>%
+    mutate(demographic = DEMO_CONFIG$living_area$label,
+           category = as.character(living_area))
+}
+if ("gender" %in% INCLUDED_DEMOS) {
+  combined_parts[[length(combined_parts) + 1]] <- car_by_gender %>%
+    mutate(demographic = DEMO_CONFIG$gender$label,
+           category = as.character(gender))
+}
+if ("income" %in% INCLUDED_DEMOS) {
+  combined_parts[[length(combined_parts) + 1]] <- income_simple_full %>%
+    mutate(demographic = DEMO_CONFIG$income$label,
+           category = as.character(income_cat))
+}
+
+combined_data_full <- bind_rows(combined_parts) %>%
+  mutate(
+    demographic = factor(demographic, 
+                        levels = sapply(DEMO_CONFIG[INCLUDED_DEMOS], function(x) x$label)),
+    category = factor(category,
+                      levels = unlist(sapply(INCLUDED_DEMOS, function(d) CATEGORY_CONFIG[[d]]$levels))),
+    car_owner = factor(car_owner, levels = c("Car owner", "No car"))
+  )
+
+# Stacked bar version
+p_combined_stacked <- ggplot(combined_data_full,
+                             aes(x = category, y = percentage, fill = car_owner)) +
+  geom_col(position = "stack") +
+  geom_text(aes(label = paste0(round(percentage, 1), "%")),
+            position = position_stack(vjust = 0.5),
+            size = 3.5, fontface = "bold", color = "white") +
+  scale_fill_manual(values = c("Car owner" = "#4A90A4", "No car" = "#D4634E")) +
+  scale_y_continuous(limits = c(0, 100), breaks = seq(0, 100, 25)) +
+  facet_wrap(~ demographic, scales = "free_x", nrow = 1) +
+  labs(
+   # title = "Car Ownership Rates Across Different Demographics",
+   # subtitle = "Distribution of car owners and non-car owners by demographic group",
+    x = "",
+    y = "Percentage (%)",
+    fill = ""
+  ) +
+  theme_publication()+
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 14),
+    axis.text.y = element_text(size = 15),
+    axis.title.y = element_text(size = 15),
+    panel.grid.major.x = element_blank(),
+    strip.text = element_text(face = "bold", size = 15),
+    legend.position = "bottom",
+    legend.text = element_text(size = 15),
+    plot.title = element_text(size = 16, face = "bold"),
+    plot.subtitle = element_text(size = 15)
+  )
+
+print(p_combined_stacked)
+
+save_plot(p_combined_stacked,"car_ownership_combined_stacked",width = 12, height = 8)
+```
+
+
+EV adoption combined:
+```{r}
+
+ev_by_distance <- car_data %>%
+  filter(car_owner == "Car owner",
+         !is.na(engine_type),
+         !is.na(distance_cat),
+         distance_cat != "Unknown") %>%
+  mutate(vehicle_type = ifelse(engine_type == "Electric" | mob2_e_filled == 1, "Electric", "Non-Electric")) %>%
+  group_by(distance_cat, vehicle_type) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(distance_cat) %>%
+  mutate(
+    total = sum(n),
+    percentage = n / total * 100
+  )
+
+# EV data by living area
+ev_by_area <- car_data %>%
+  filter(car_owner == "Car owner", !is.na(engine_type), !is.na(living_area)) %>%
+  mutate(vehicle_type = ifelse(engine_type == "Electric" | mob2_e_filled == 1, "Electric", "Non-Electric")) %>%
+  group_by(living_area, vehicle_type) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(living_area) %>%
+  mutate(
+    total = sum(n),
+    percentage = n / total * 100
+  )
+
+ev_by_age <- car_data %>%
+  filter(car_owner == "Car owner", !is.na(engine_type), !is.na(age_group)) %>%
+  mutate(vehicle_type = ifelse(engine_type == "Electric" | mob2_e_filled == 1, "Electric", "Non-Electric")) %>%
+  group_by(age_group, vehicle_type) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(age_group) %>%
+  mutate(
+    total = sum(n),
+    percentage = n / total * 100
+  )
+
+# By income
+ev_by_income_simple <- car_data %>%
+  filter(car_owner == "Car owner",
+         !is.na(engine_type),
+         !is.na(income_level),
+         !income_level %in% c("Don't know", "Prefer not to say")) %>%
+  mutate(
+    vehicle_type = ifelse(engine_type == "Electric"| mob2_e_filled == 1, "Electric", "Non-Electric"),
+    income_cat = case_when(
+      income_level %in% c("≤3,000", "3,000-4,499") ~ "Low\n(≤4,500)",
+      income_level %in% c("4,500-5,999", "6,000-8,999") ~ "Medium\n(4,500-9,000)",
+      income_level %in% c("9,000-12,000", ">12,000") ~ "High\n(>9,000)"
+    )
+  ) %>%
+  filter(!is.na(income_cat)) %>%
+  group_by(income_cat, vehicle_type) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(income_cat) %>%
+  mutate(
+    total = sum(n),
+    percentage = n / total * 100,
+    income_cat = factor(income_cat,
+                       levels = c("Low\n(≤4,500)",
+                                 "Medium\n(4,500-9,000)",
+                                 "High\n(>9,000)"))
+  )
+
+engine_simple <- car_data %>%
+  filter(car_owner == "Car owner",
+         !is.na(engine_type),
+         !is.na(income_level),
+         !income_level %in% c("Don't know", "Prefer not to say")) %>%
+  mutate(
+    is_electric = ifelse(engine_type == "Electric", "Electric", "Non-electric")
+  ) %>%
+  group_by(income_level, is_electric) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(income_level) %>%
+  mutate(percentage = n / sum(n) * 100)
+
+ev_by_income <- engine_simple %>%
+  group_by(income_level, is_electric) %>%
+  summarise(n = sum(n), .groups = "drop") %>%
+  group_by(income_level) %>%
+  mutate(percentage = n / sum(n) * 100) %>%
+  filter(is_electric == "Electric")
+print(ev_by_income)
+
+unique(ev_by_income_simple$income_cat)
+
+combined_ev_data <- bind_rows(
+  ev_by_age %>% ungroup() %>%
+    mutate(demographic = "Age Group",
+           category = as.character(age_group)) %>%
+    select(demographic, category, vehicle_type, percentage),
+
+  ev_by_area %>% ungroup() %>%
+    mutate(demographic = "Living Area",
+           category = as.character(living_area)) %>%
+    select(demographic, category, vehicle_type, percentage),
+
+  ev_by_distance %>% ungroup() %>%
+    mutate(demographic = "Distance Traveled",
+           category = gsub("\n", " ", as.character(distance_cat))) %>%
+    select(demographic, category, vehicle_type, percentage),
+
+  ev_by_income_simple %>% ungroup() %>%
+    mutate(demographic = "Income Level",
+           category = gsub("\n", " ", as.character(income_cat))) %>%
+    select(demographic, category, vehicle_type, percentage)
+) %>%
+  filter(category != "Unknown") %>%
+  select(demographic, category, vehicle_type, percentage) %>%
+  mutate(
+    demographic  = factor(demographic,
+                          levels = c("Age Group", "Living Area",
+                                     "Distance Traveled", "Income Level")),
+    vehicle_type = factor(vehicle_type, levels = c("Non-Electric", "Electric")),
+    category     = factor(category, levels = c(
+      "18-34", "35-54", "55+",
+      "City", "Agglomeration", "Countryside",
+      "Low (≤10,000 km/year)", "Medium (10,000-25,000 km/year)", "High (>25,000 km/year)",
+      "Low (≤4,500)", "Medium (4,500-9,000)", "High (>9,000)"
+    ))
+  )
+
+# Find the dropped row
+cat("NA categories:\n")
+print(combined_ev_data %>% filter(is.na(category)))
+
+
+# Define colors for both vehicle types
+ev_colors <- c("Electric" = "#2ECC71", "Non-Electric" = "#95A5A6")
+
+print(combined_ev_data)
+
+# Combined stacked bar plot
+p11_combined <- ggplot(combined_ev_data,
+                       aes(x = category, y = percentage, fill = vehicle_type)) +
+  geom_col(position = "stack") +
+  geom_text(aes(label = paste0(round(percentage, 1), "%")),
+            position = position_stack(vjust = 0.5),
+            size = 3.5, fontface = "bold", color = "black") +
+  scale_fill_manual(values = ev_colors,
+                    breaks = c("Electric", "Non-Electric")) +
+  scale_y_continuous(limits = c(0, 102), breaks = seq(0, 100, 25)) +
+  facet_wrap(~ demographic, scales = "free_x", nrow = 1) +
+  labs(
+    #title = "Electric Vehicle Adoption Across Demographics",
+    #subtitle = "Percentage of electric vs non-electric vehicles among car owners",
+    x = "",
+    y = "Percentage (%)",
+    fill = ""
+  ) +
+  theme_publication(base_size = 12) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 16),
+    axis.text.y = element_text(size = 16),
+    axis.title.y = element_text(size = 16),
+    panel.grid.major.x = element_blank(),
+    strip.text = element_text(face = "bold", size = 16),
+    legend.position = "bottom",
+    legend.text = element_text(size = 16),
+    plot.title = element_text(size = 16, face = "bold"),
+    plot.subtitle = element_text(size = 16)
+  )
+
+print(p11_combined)
+
+save_plot(p11_combined, "ev_adoption_combined", width=12, height = 8 )
+```
+
+
+```{r}
+
+ev_by_age %>% filter(age_group == "35-54")
+
+```
+
+Multinomial logit for no car/ not electric car / electric:
+
+```{r}
+library(nnet)
+library(httr)
+library(readr)
+library(dplyr)
+library(broom)
+table(car_data$car_owner)
+
+multi_data <- car_data %>%
+  mutate(
+   vehicle_class = case_when(
+     car_owner == "No car"                                              ~ "No car",
+     engine_type == "Electric" | mob2_e_filled == 1                   ~ "Electric",
+     engine_type %in% c("Gasoline", "Diesel", "Hybrid gasoline",
+                     "Hybrid diesel", "Natural gas", "Other")       ~ "Non-Electric",
+     TRUE ~ NA_character_
+   ),
+    income_cat = recode_income(income_level),
+    distance_simple = case_when(
+      mob7a %in% c(1, 2)                ~ "Low",
+      mob7a %in% c(3, 4, 5)             ~ "Medium",
+      mob7a %in% c(6, 7, 8, 9, 10, 11) ~ "High",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  filter(!is.na(vehicle_class))
+
+# Filter based on configuration
+if ("age_group" %in% INCLUDED_DEMOS) {
+  multi_data <- multi_data %>% filter(!is.na(age_group))
+  multi_data$age_group <- factor(multi_data$age_group, levels = CATEGORY_CONFIG$age_group$levels)
+}
+if ("gender" %in% INCLUDED_DEMOS) {
+  multi_data <- multi_data %>% filter(!is.na(gender), gender != "Other")
+  multi_data$gender <- factor(multi_data$gender, levels = CATEGORY_CONFIG$gender$levels)
+}
+if ("living_area" %in% INCLUDED_DEMOS) {
+  multi_data <- multi_data %>% filter(!is.na(living_area))
+  multi_data$living_area <- factor(multi_data$living_area, levels = CATEGORY_CONFIG$living_area$levels)
+}
+if ("income" %in% INCLUDED_DEMOS) {
+  multi_data <- multi_data %>% filter(!is.na(income_cat))
+  multi_data$income_cat <- factor(multi_data$income_cat, levels = CATEGORY_CONFIG$income$levels)
+}
+
+multi_data$vehicle_class <- factor(multi_data$vehicle_class, levels = c("No car", "Non-Electric", "Electric"))
+
+cat("Outcome distribution (full sample):\n")
+print(table(multi_data$vehicle_class))
+
+# Build formula
+formula_terms <- c()
+if ("age_group" %in% INCLUDED_DEMOS) formula_terms <- c(formula_terms, "age_group")
+if ("gender" %in% INCLUDED_DEMOS) formula_terms <- c(formula_terms, "gender")
+if ("living_area" %in% INCLUDED_DEMOS) formula_terms <- c(formula_terms, "living_area")
+if ("income" %in% INCLUDED_DEMOS) formula_terms <- c(formula_terms, "income_cat")
+
+formula_str <- paste("vehicle_class ~", paste(formula_terms, collapse = " + "))
+m1 <- multinom(
+  as.formula(formula_str),
+  data  = multi_data,
+  trace = FALSE
+)
+
+summary(m1)
+
+m1_tbl <- tidy(m1, conf.int = TRUE, exponentiate = TRUE) %>%
+  rename(Outcome = y.level, OR = estimate, SE = std.error,
+         z = statistic, p = p.value, CI_low = conf.low, CI_high = conf.high) %>%
+  mutate(across(where(is.numeric), ~round(.x, 3)))
+
+print(m1_tbl)
+
+null_m1 <- multinom(vehicle_class ~ 1, data = multi_data, trace = FALSE)
+cat("McFadden R2 (Model 1):", round(1 - logLik(m1) / logLik(null_m1), 3), "\n")
+```
+
+Predictied probability table:
+```{r}
+library(broom)
+library(knitr)
+
+# Get z-scores and p-values manually
+z_scores <- summary(m1)$coefficients / summary(m1)$standard.errors
+p_values  <- (1 - pnorm(abs(z_scores))) * 2
+
+term_recode <- unlist(lapply(INCLUDED_DEMOS, function(d) REGRESSION_LABELS[[d]]))
+
+tidy(m1, conf.int = TRUE, exponentiate = TRUE) %>%
+  filter(term != "(Intercept)") %>%
+  mutate(
+    term = recode(term, !!!term_recode),
+    sig = case_when(
+      p.value < 0.001 ~ "***",
+      p.value < 0.01  ~ "**",
+      p.value < 0.05  ~ "*",
+      p.value < 0.1   ~ ".",
+      TRUE            ~ ""
+    ),
+    OR = paste0(round(estimate, 3), sig),
+    CI = paste0("[", round(conf.low, 3), ", ", round(conf.high, 3), "]")
+  ) %>%
+  select(y.level, term, OR, CI) %>%
+  rename(Outcome = y.level, Predictor = term) %>%
+  kable("latex", booktabs = TRUE, escape = FALSE,
+        caption = "Multinomial Logit: Vehicle Class (ref = No car)",
+        label   = "tab:multinom") %>%
+  cat(file = "MultinomCarTable.tex")
+
+term_recode_short <- unlist(lapply(INCLUDED_DEMOS, function(d) REGRESSION_LABELS_SHORT[[d]]))
+
+plot <- tidy(m1, conf.int = TRUE, exponentiate = TRUE) %>%
+  filter(term != "(Intercept)") %>%
+  mutate(
+    term = recode(term, !!!term_recode_short),
+    term = factor(term, levels = rev(unlist(lapply(INCLUDED_DEMOS, function(d) REGRESSION_LABELS_SHORT[[d]])))),
+    y.level = factor(y.level, levels = c("Non-Electric", "Electric")),
+    stars = ifelse(p.value < 0.001, "***",
+            ifelse(p.value < 0.01,  "**",
+            ifelse(p.value < 0.05,  "*", "")))
+  ) %>%
+  ggplot(aes(x = estimate, y = term, color = y.level)) +
+  geom_vline(xintercept = 1, linetype = "dashed", color = "grey50") +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high),
+                 height = 0.25, linewidth = 1.2,
+                 position = position_dodge(width = 0.5)) +
+
+  geom_point(size = 3.5, position = position_dodge(width = 0.5)) +
+  geom_text(aes(x = conf.high, label = stars),
+            position = position_dodge(width = 0.5),
+            hjust = -0.3, vjust = 0.5, size = 6, show.legend = FALSE) +
+  scale_x_log10(breaks = c(0.5, 1, 2, 5, 10, 20)) +
+  scale_color_manual(values = c("Non-Electric" = "#95A5A6",
+                                "Electric"     = "#2ECC71")) +
+  labs(x = NULL, y = NULL, color = NULL) +
+  theme_publication() +
+  theme(legend.position = "bottom")
+
+print(plot)
+
+save_plot(plot,"multinom_reg_car_demographics")
+
+library(marginaleffects)
+
+# Average predicted probabilities by income (if included)
+if ("income" %in% INCLUDED_DEMOS) {
+  predictions(m1,
+              newdata = datagrid(income_cat = levels(multi_data$income_cat))) %>%
+    as_tibble() %>%
+    select(group, income_cat, estimate, conf.low, conf.high) %>%
+    mutate(across(where(is.numeric), ~round(.x, 3))) %>%
+    kable(caption = "Predicted probabilities by income group")
+}
+
+
+```
+
+
+
+Check results:
+```{r}
+cat("Total respondents:", nrow(car_data), "\n")
+cat("car_owner:\n"); print(table(car_data$car_owner, useNA = "always"))
+
+car_owners <- car_data %>% filter(car_owner == "Car owner")
+cat("N =", nrow(car_owners), "\n")
+
+cat("Has engine_type:", sum(!is.na(car_owners$engine_type)), "\n")
+cat("Missing engine_type:", sum(is.na(car_owners$engine_type)),
+    paste0("(", round(mean(is.na(car_owners$engine_type)) * 100, 1), "% of car owners)\n"))
+cat("engine_type breakdown:\n")
+print(table(car_owners$engine_type, useNA = "always"))
+
+cat("\n=== Missing data for included variables ===\n")
+car_with_engine <- car_owners %>% filter(!is.na(engine_type))
+if ("age_group" %in% INCLUDED_DEMOS) {
+  cat("Missing age_group:   ", sum(is.na(car_with_engine$age_group)), "\n")
+}
+if ("gender" %in% INCLUDED_DEMOS) {
+  cat("Missing gender:      ", sum(is.na(car_with_engine$gender)),
+      "| 'Other':", sum(car_with_engine$gender == "Other", na.rm = TRUE), "\n")
+}
+if ("living_area" %in% INCLUDED_DEMOS) {
+  cat("Missing living_area: ", sum(is.na(car_with_engine$living_area)), "\n")
+}
+if ("income" %in% INCLUDED_DEMOS) {
+  cat("Missing income_level:", sum(is.na(car_with_engine$income_level)), "\n")
+}
+cat("Missing distance (mob7a):", sum(is.na(car_with_engine$mob7a)), "\n")
+```

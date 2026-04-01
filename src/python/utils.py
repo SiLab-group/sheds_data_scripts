@@ -82,32 +82,70 @@ def save_plot(plot, path: str = "plots", filename: str = "plot",
     plot.set_size_inches(width, height)
     
     # Save as PDF
-    plot.savefig(output_path / f"{filename}.pdf", format='pdf', bbox_inches='tight')
-    
+    plot.savefig(output_path / f"{filename}.pdf", format='pdf', bbox_inches='tight', facecolor='white')
+
     # Save as EPS
-    plot.savefig(output_path / f"{filename}.eps", format='eps', bbox_inches='tight')
-    
+    plot.savefig(output_path / f"{filename}.eps", format='eps', bbox_inches='tight', facecolor='white')
+
+    plt.close(plot)
     print(f"Saved: {filename}.pdf and .eps")
 
 
 
+def conditional_ffill(group: pd.DataFrame, value_col: str, change_col: str,
+                       fill_when: pd.Series | None = None) -> pd.Series:
+    """
+    Forward-fill value_col only when change_col != 1.
+
+    Fill conditions:
+      - change_col == 0   : no change reported          → fill
+      - change_col is NaN : new respondent / not shown  → fill
+      - change_col == 1   : change happened             → keep NaN
+                            (new value should be explicitly provided)
+
+    Parameters
+    ----------
+    group : pd.DataFrame
+        Single-person group (already sorted by year_wave)
+    value_col : str
+        Column to fill (e.g. 'mob3_3_filled', 'accom1_filled')
+    change_col : str
+        Column indicating whether a change occurred (e.g. 'mob3_change', 'accom_change')
+    fill_when : pd.Series or None
+        Boolean mask (aligned to group index) restricting which rows are eligible
+        for filling. If None, any NaN row is eligible (original behaviour).
+    """
+    result = group[value_col].copy()
+    change = group[change_col] if change_col in group.columns else pd.Series(np.nan, index=group.index)
+    last_known = np.nan
+    for idx in result.index:
+        if pd.notna(result.loc[idx]):
+            last_known = result.loc[idx]    # update last known valid value
+        elif (fill_when is None or fill_when.loc[idx]) and change.loc[idx] != 1:
+            result.loc[idx] = last_known
+        # change_col == 1, or fill_when is False → leave as NaN
+    return result
+
+
 def build_car_history(all_waves_dict: Dict[str, pd.DataFrame]) -> pd.DataFrame:
     """
-    Build car history across all waves with carry-forward logic.
-    Equivalent to R version using zoo::na.locf for forward fill.
-    
+    Build car history across all waves with conditional carry-forward logic.
+
+    Matches R build_car_history_stata: mob3_3 is only carried forward when
+    mob3_change != 1 (i.e. no car change reported, or question not shown to
+    new respondents). When mob3_change == 1 the person changed cars and their
+    new fuel type must be explicitly provided — we do NOT fill those rows.
+
     Parameters
     ----------
     all_waves_dict : dict
         Dictionary mapping year strings to DataFrames (e.g., {"2016": df2016, ...})
-        
+
     Returns
     -------
     pd.DataFrame
         Combined car history with mob3_3_filled and mob2_e_filled columns
     """
-    # Mapping for mob3_3 string labels to numeric codes (if needed)
-    # These match SPSS value labels for fuel type
     fuel_type_to_code = {
         'Gasoline': 1, 'gasoline': 1, 'Benzin': 1, 'Essence': 1,
         'Diesel': 2, 'diesel': 2,
@@ -119,54 +157,53 @@ def build_car_history(all_waves_dict: Dict[str, pd.DataFrame]) -> pd.DataFrame:
         'Electric': 8, 'electric': 8, 'Électrique': 8, 'Elektrisch': 8,
         'Other': 9, 'other': 9, 'Autre': 9, 'Andere': 9,
     }
-    
+
     dfs = []
-    
+
     for year, df in all_waves_dict.items():
-        # Select columns: id, mob2_1, mob3_3 + optional columns
         cols_to_select = ['id', 'mob2_1', 'mob3_3']
         optional_cols = ['old', 'mob2_e', 'mob3_change']
-        
+
         for col in optional_cols:
             if col in df.columns:
                 cols_to_select.append(col)
-        
-        # Select only columns that exist
+
         available_cols = [c for c in cols_to_select if c in df.columns]
         subset = df[available_cols].copy()
         subset['year_wave'] = int(year)
-        
-        # Convert mob3_3 from string labels to numeric if needed
+
         if 'mob3_3' in subset.columns and subset['mob3_3'].dtype == object:
             subset['mob3_3'] = subset['mob3_3'].map(fuel_type_to_code)
-        
+
         dfs.append(subset)
-    
-    # Combine all waves
+
     car_history = pd.concat(dfs, ignore_index=True)
     car_history = car_history.sort_values(['id', 'year_wave'])
-    
-    # Convert to numeric (handles any remaining edge cases)
+
     numeric_cols = ['mob2_1', 'mob3_3', 'mob2_e', 'mob3_change', 'old']
     for col in numeric_cols:
         if col in car_history.columns:
             car_history[col] = pd.to_numeric(car_history[col], errors='coerce')
-    
-    # Carry forward last known mob3_3 (only positive values)
-    # R: mob3_3_filled = ifelse(!is.na(mob3_3) & mob3_3 > 0, mob3_3, NA)
-    # R: mob3_3_filled = zoo::na.locf(mob3_3_filled, na.rm = FALSE)
+
+    # Mask invalid codes (-1 dnk, -2 dna) before filling
     car_history['mob3_3_filled'] = car_history['mob3_3'].where(
         car_history['mob3_3'].notna() & (car_history['mob3_3'] > 0)
     )
-    car_history['mob3_3_filled'] = car_history.groupby('id')['mob3_3_filled'].ffill()
-    
-    # Carry forward last known mob2_e (only non-negative values)
+    # Conditionally carry forward: only when mob3_change != 1
+    filled_parts = []
+    for _, group in car_history.groupby('id', sort=False):
+        filled_parts.append(conditional_ffill(group, 'mob3_3_filled', 'mob3_change'))
+    car_history['mob3_3_filled'] = pd.concat(filled_parts)
+
     if 'mob2_e' in car_history.columns:
         car_history['mob2_e_filled'] = car_history['mob2_e'].where(
             car_history['mob2_e'].notna() & (car_history['mob2_e'] >= 0)
         )
-        car_history['mob2_e_filled'] = car_history.groupby('id')['mob2_e_filled'].ffill()
-    
+        filled_parts = []
+        for _, group in car_history.groupby('id', sort=False):
+            filled_parts.append(conditional_ffill(group, 'mob2_e_filled', 'mob3_change'))
+        car_history['mob2_e_filled'] = pd.concat(filled_parts)
+
     return car_history
 
 

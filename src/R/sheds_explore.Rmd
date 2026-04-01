@@ -15,7 +15,9 @@ library(ggthemes)     # Themes
 # Read SPSS file
 source(file.path(getwd(),"src","R","utils.R"))
 
-data_path <- "/path/to/data/SHEDS2025.sav"
+library(yaml)
+config <- yaml.load_file(file.path(getwd(), "config.yaml"))
+data_path <- file.path(config$paths$data_dir, config$sheds_files[["2025"]])
 sheds <- read_clean_sheds(data_path)
 head(sheds)
 ```
@@ -106,6 +108,22 @@ sheds_clean %>%
   mutate(region_name = apply_spss_labels(., "region", sheds)) %>%
   ggplot(aes(x = reorder(region_name, n), y = n)) +
   geom_col(fill = "forestgreen") +
+  coord_flip() +
+  labs(title = "Regional Distribution",
+       x = "Region", y = "Count") +
+  theme_minimal()
+
+sheds_clean %>%
+  filter(finished == 1) %>%
+  count(region) %>%
+  mutate(
+    pct = n / sum(n) * 100,
+    region_name = apply_spss_labels(., "region", sheds),
+    label = sprintf("%s (%.1f%%)", region_name, pct)
+  ) %>%
+  ggplot(aes(x = reorder(label, n), y = n)) +
+  geom_col(fill = "forestgreen") +
+  geom_text(aes(label = sprintf("%.1f%%", pct)), hjust = -0.1, size = 3.5) +
   coord_flip() +
   labs(title = "Regional Distribution",
        x = "Region", y = "Count") +
