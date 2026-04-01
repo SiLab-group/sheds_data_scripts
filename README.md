@@ -97,7 +97,7 @@ paths:
   data_dir: "/path/to/your/sheds_data/"   # folder containing the .sav files
   plots_dir: "plots"                       # output folder for saved figures
   questions_csv: "sheds_questions_up2025.csv"
-  geodata_bezirke: ""                      # path to BFS Bezirke shapefile; leave empty to auto-download
+  geodata_bezirke: ""                      # path to BFS Bezirke shapefile
 
 sheds_files:
   "2016": "SHEDS2016.sav"
