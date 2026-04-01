@@ -19,18 +19,54 @@ sheds_data_scripts/
 ├── .gitignore
 └── src/
     ├── python/
-    │   ├── utils.py # Contains useful functions
+    │   ├── utils.py # read_clean_sheds, get_data_summary, save_plot, conditional_ffill, build_car_history, check_finished, analyze_ev_ownership_data
     │   ├── sheds_explore.ipynb # Explore dataset and metadata
     │   ├── longitudinal_exploration.ipynb # EV ownership
+    │   ├── longitudinal_history_variables.py # Build longitudinal history files (see below)
     │   └── read_sav_example.ipynb # Simple example of how to read and use metadata
     └── R/
-        ├── utils.R # Contains useful functions
+        ├── utils.R # read_clean_sheds, get_data_summary, save_plot, build_car_history_stata, analyze_ev_ownership_data, theme_publication, validate_car_history, filter_by_included_vars, generate_latex_row
         ├── sheds_explore.Rmd # Explore dataset and metadata
         ├── outlier_detection.Rmd # Outlier detection
         ├── outliers_functions.R
         ├── wemf_regions_distribution_map.Rmd # Create region distribution map
         └── longitudinal_exploration.rmd # EV ownership
 ```
+
+### Longitudinal History Files
+
+`longitudinal_history_variables.py` builds two panel datasets (one row per respondent × wave) saved as `.csv` and `.pkl`:
+
+- **`sheds_accom_history`** — accommodation type (`accom1`: owner / tenant / cooperative) across all waves, plus additional housing variables. Includes a filled column `accom1_filled` to handle survey skip logic:
+  - In **2018 and 2019**, returning respondents who did not move were not asked `accom1` again (coded `-2` DNA). Their previous answer is carried forward into `accom1_filled`.
+  - In **2020**, a small number of respondents have a missing `accom1`; these are also filled from the previous wave.
+  - If a respondent reported a move (`accom_change == 1`), no fill is applied — the new value must be explicit.
+- **`sheds_identifier_history`** — selected target variables (e.g. `accom3`, `accom5`, `heat5a1_2`) across all waves in wide format.
+
+**Car history** is built via `build_car_history` in `utils.py` (Python) and equivalently in `utils.R` / `longitudinal_exploration.rmd` (R):
+- Returning car owners are only asked for their fuel type (`mob3_3`) if they changed their car (`mob3_change == 1`). Otherwise the previous answer is carried forward into `mob3_3_filled`.
+
+#### Accommodation Variables
+
+| Variable | Description | Codes |
+|----------|-------------|-------|
+| `id` | Respondent ID (consistent across waves) | — |
+| `accom1` | Accommodation type | 1 = Owner, 2 = Tenant, 3 = Cooperative |
+| `accom1_filled` | `accom1` with carry-forward applied | same as above |
+| `accom_change` | Respondent changed accommodation since last wave | 1 = yes, 0 = no |
+
+#### Car Variables
+
+| Variable | Description | Codes |
+|----------|-------------|-------|
+| `mob2_1` | Number of cars in household | — |
+| `mob3_3` | Fuel type of main car | 1 = Gasoline, 2 = Diesel, 3 = Natural Gas, 4 = LPG, 5 = Hybrid gasoline, 6 = Plug-in Hybrid, 7 = Hybrid diesel, 8 = Electric, 9 = Other |
+| `mob3_3_filled` | `mob3_3` with carry-forward applied | same as above |
+| `mob3_change` | Respondent changed car since last wave | 1 = yes, 0 = no |
+| `mob2_e` | Has electric vehicle as secondary car | 1 = yes |
+
+
+
 
 ## Setup
 
@@ -150,82 +186,6 @@ sheds %>%
 | `analyze_ev_ownership_data(data_history, year)` | Analyze EV/hybrid ownership for a specific year |
 | `save_plot(plot, path, filename)` | Save figure in PDF and EPS formats |
 | `check_finished(data, year)` | Report completion statistics for a wave |
-
-## Example longitudinal analysis of EVs
-Since we do not ask all respondents about their car type in every wave—only when they report a change—it is necessary to reconstruct the full car‑ownership history for the analysis. In each wave, respondents are asked whether they have changed their car since the previous survey. If they report a change, we collect the type of car; if not, the question is skipped.
-To build a complete car‑type history, we need to carry forward (i.e., “roll forward”) the car type reported in the most recent previous wave whenever no change is indicated, and update the value only in waves where a change is reported.
-
-### Python
-
-```python
-from utils import read_clean_sheds, build_car_history, analyze_ev_ownership_data
-import pandas as pd
-
-# Load all waves
-years = [2016, 2017, 2018, 2019, 2020, 2021, 2023, 2025]
-waves = {}
-for year in years:
-    waves[str(year)] = read_clean_sheds(f"/path/to/SHEDS{year}.sav")
-
-# Build car history with forward-fill
-car_history = build_car_history(waves)
-
-# Analyze each year
-results = pd.concat([
-    analyze_ev_ownership_data(car_history, year)
-    for year in [2019, 2020, 2021, 2023, 2025]
-])
-```
-
-### R
-
-```r
-source("utils.R")
-
-years <- c(2016, 2017, 2018, 2019, 2020, 2021, 2023, 2025)
-waves <- list()
-
-for (year in years) {
-  waves[[as.character(year)]] <- read_clean_sheds(paste0("/path/to/SHEDS", year, ".sav"))
-}
-
-car_history <- build_car_history(waves)
-
-results <- bind_rows(
-  analyze_ev_ownership_data(car_history, 2019),
-  analyze_ev_ownership_data(car_history, 2020),
-  analyze_ev_ownership_data(car_history, 2021),
-  analyze_ev_ownership_data(car_history, 2023),
-  analyze_ev_ownership_data(car_history, 2025)
-)
-```
-
-## Used Variables
-
-| Variable | Description |
-|----------|-------------|
-| `id` | Respondent ID (consistent across waves) |
-| `finished` | Survey completion (1 = finished) |
-| `screen` | Screening status (3 = screened out) |
-| `mob2_1` | Number of cars in household |
-| `mob3_3` | Fuel type of main car (8 = Electric) |
-| `mob2_e` | Has electric vehicle as secondary car (1 = yes) |
-| `q_totalduration` | Survey duration in minutes |
-
-### mob3_3 Fuel Type Codes
-
-| Code | Fuel Type |
-|------|-----------|
-| 1 | Gasoline |
-| 2 | Diesel |
-| 3 | Natural Gas |
-| 4 | LPG |
-| 5 | Hybrid gasoline |
-| 6 | Plug-in Hybrid |
-| 7 | Hybrid diesel |
-| 8 | Electric |
-| 9 | Other |
-
 
 ## Citation
 
