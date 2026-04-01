@@ -10,13 +10,6 @@ from pathlib import Path
 from typing import Dict
 from utils import read_clean_sheds, build_car_history, conditional_ffill
 
-_root = Path(__file__).parents[2]
-with open(_root / "config.yaml") as f:
-    _config = yaml.safe_load(f)
-
-data_dir = Path(_config["paths"]["data_dir"])
-sheds_files = _config["sheds_files"]
-
 # Target variables to find and make columns of
 target_vars = ["accom3", "accom5", "heat5a1_2", "accom4a3", "accom9a1_1","accom9a1_2","accom9a1_3","accom9a1_4"]
 
@@ -160,6 +153,12 @@ def build_accom_history(all_waves_dict: Dict[str, pd.DataFrame]) -> pd.DataFrame
 
 
 def main():
+    _root = Path(__file__).parents[2]
+    with open(_root / "config.yaml") as f:
+        _config = yaml.safe_load(f)
+    data_dir = Path(_config["paths"]["data_dir"])
+    sheds_files = _config["sheds_files"]
+
     print("SHEDS Identifier History Extraction")
     print(f"Target variables: {', '.join(target_vars)}")
 
