@@ -145,16 +145,16 @@ def build_accom_history(all_waves_dict: Dict[str, pd.DataFrame]) -> pd.DataFrame
     )
     # Carry forward only into rows where original accom1 was -2 (DNA),
     # and only when accom_change != 1 (no move/change reported)
-    accom_history['accom1_filled'] = (
-        accom_history.groupby('id', group_keys=False)
-        .apply(lambda g: conditional_ffill(
-            g, 'accom1_filled', 'accom_change',
+    filled_parts = []
+    for _, group in accom_history.groupby('id', sort=False):
+        filled_parts.append(conditional_ffill(
+            group, 'accom1_filled', 'accom_change',
             fill_when=(
-                ((g['accom1'] == -2) & (g['year_wave'].isin([2018, 2019]))) |
-                (g['accom1'].isna() & (g['year_wave'] == 2020))
+                ((group['accom1'] == -2) & (group['year_wave'].isin([2018, 2019]))) |
+                (group['accom1'].isna() & (group['year_wave'] == 2020))
             )
         ))
-    )
+    accom_history['accom1_filled'] = pd.concat(filled_parts)
 
     return accom_history
 

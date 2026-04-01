@@ -190,19 +190,19 @@ def build_car_history(all_waves_dict: Dict[str, pd.DataFrame]) -> pd.DataFrame:
         car_history['mob3_3'].notna() & (car_history['mob3_3'] > 0)
     )
     # Conditionally carry forward: only when mob3_change != 1
-    car_history['mob3_3_filled'] = (
-        car_history.groupby('id', group_keys=False)
-        .apply(lambda g: conditional_ffill(g, 'mob3_3_filled', 'mob3_change'))
-    )
+    filled_parts = []
+    for _, group in car_history.groupby('id', sort=False):
+        filled_parts.append(conditional_ffill(group, 'mob3_3_filled', 'mob3_change'))
+    car_history['mob3_3_filled'] = pd.concat(filled_parts)
 
     if 'mob2_e' in car_history.columns:
         car_history['mob2_e_filled'] = car_history['mob2_e'].where(
             car_history['mob2_e'].notna() & (car_history['mob2_e'] >= 0)
         )
-        car_history['mob2_e_filled'] = (
-            car_history.groupby('id', group_keys=False)
-            .apply(lambda g: conditional_ffill(g, 'mob2_e_filled', 'mob3_change'))
-        )
+        filled_parts = []
+        for _, group in car_history.groupby('id', sort=False):
+            filled_parts.append(conditional_ffill(group, 'mob2_e_filled', 'mob3_change'))
+        car_history['mob2_e_filled'] = pd.concat(filled_parts)
 
     return car_history
 
