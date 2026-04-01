@@ -19,7 +19,7 @@ jobs:
           cache: "pip"
 
       - name: Install dependencies
-        run: pip install pandas numpy pyreadstat matplotlib pytest
+        run: pip install pandas numpy pyreadstat matplotlib pyyaml pytest
 
       - name: Run tests
         run: pytest tests/ -v
