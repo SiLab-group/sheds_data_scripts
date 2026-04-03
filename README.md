@@ -3,7 +3,7 @@
 Scripts for processing and analyzing the Swiss Household Energy Demand Survey (SHEDS) data in R and Python.
 SHEDS data is stored in SPSS format (.sav) which includes value labels and variable descriptions. Descriptions and more information can be found at [SHEDS - Sweet Cross](https://sweet-cross.ch/sheds/).
 
-**Figure 1. SHEDS timeline and response counts by wave**
+**Figure 1. SHEDS variable counts over time**
 <img width="2224" height="1202" alt="sheds_timeline_counts" src="https://github.com/user-attachments/assets/713a6f56-d32d-4148-b1ff-34df0b3cd7e8" />
 
 *Note: This Figure shows the number of variables (columns) available in SHEDS datasets in each category. These do not correspond to numbers of questions because each item of a question is coded in its own column.*
@@ -21,6 +21,7 @@ sheds_data_scripts/
     ├── python/
     │   ├── utils.py # read_clean_sheds, get_data_summary, save_plot, conditional_ffill, build_car_history, check_finished, analyze_ev_ownership_data
     │   ├── sheds_explore.ipynb # Explore dataset and metadata
+    |   ├── car_owners_paper.ipynb # Explore car owners
     │   ├── longitudinal_exploration.ipynb # EV ownership
     │   ├── longitudinal_history_variables.py # Build longitudinal history files (see below)
     │   └── read_sav_example.ipynb # Simple example of how to read and use metadata
@@ -29,6 +30,7 @@ sheds_data_scripts/
         ├── sheds_explore.Rmd # Explore dataset and metadata
         ├── outlier_detection.Rmd # Outlier detection
         ├── outliers_functions.R
+        ├── car_owners_paper.R # Explore car owners
         ├── wemf_regions_distribution_map.Rmd # Create region distribution map
         └── longitudinal_exploration.rmd # EV ownership
 ```
