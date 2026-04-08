@@ -121,26 +121,9 @@ sheds_files:
 
 ## Loading SHEDS Data
 
-### R
+### Python - Accessing Labels
 
-```r
-source("utils.R")
-
-## Content
-- `sheds_questions_up2025.csv`: contains the question ids over the years, 1 indicating the question occured in the given year
-- `sheds_explore.Rmd`: contains loading of the sav file in R with the metadata and some example graphs
-- `read_sav_example.ipynb`: contains loading of sav file in python with metadata and examples how to access metadata
-
-## Loading SPSS file
-1. For the loading the library `haven` has to be first installed. After that the file can be loaded:
-```R
-library(haven)        # Read SPSS files
-sheds <- read_sav("/Users/olaf/NAMEFILE.sav", encoding="UTF-8")
-```
-
-### Python
-
-2. For the reading the file library pyreadstat has to be first installed. Then the the file can be loaded with metadata:
+For the reading the file library pyreadstat has to be first installed. Then the the file can be loaded with metadata:
 ```python
 import pyreadstat
 
