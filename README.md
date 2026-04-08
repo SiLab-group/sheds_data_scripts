@@ -123,7 +123,7 @@ sheds_files:
 
 ### Python - Accessing Labels
 
-2. For the reading the file library pyreadstat has to be first installed. Then the the file can be loaded with metadata:
+For the reading the file library pyreadstat has to be first installed. Then the the file can be loaded with metadata:
 ```python
 import pyreadstat
 
