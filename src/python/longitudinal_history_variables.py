@@ -11,7 +11,21 @@ from typing import Dict
 from utils import read_clean_sheds, build_car_history, conditional_ffill
 
 # Target variables to find and make columns of
-target_vars = ["accom3", "accom5", "heat5a1_2", "accom4a3", "accom9a1_1","accom9a1_2","accom9a1_3","accom9a1_4"]
+# renov2_* is the 2020/2021 equivalent of accom9a1_2, structured as a battery of items
+_renov2_vars = [
+    "renov2_1_0", "renov2_1_1", "renov2_1_2", "renov2_1_3", "renov2_1_4",
+    "renov2_1_5", "renov2_1_6", "renov2_1_7", "renov2_1_8", "renov2_1_9", "renov2_1_10",
+    "renov2_2_0", "renov2_2_1", "renov2_2_2", "renov2_2_3", "renov2_2_4",
+    "renov2_2_5", "renov2_2_6", "renov2_2_7", "renov2_2_8", "renov2_2_9", "renov2_2_10",
+    "renov2_3_0", "renov2_3_1", "renov2_3_2", "renov2_3_3", "renov2_3_4",
+    "renov2_3_5", "renov2_3_6", "renov2_3_7", "renov2_3_8", "renov2_3_9", "renov2_3_10",
+    "renov2_4_0", "renov2_4_1", "renov2_4_2", "renov2_4_3", "renov2_4_4",
+    "renov2_4_5", "renov2_4_6", "renov2_4_7", "renov2_4_8", "renov2_4_9", "renov2_4_10",
+    "renov2_5_0", "renov2_5_1", "renov2_5_2", "renov2_5_3", "renov2_5_4",
+    "renov2_5_5", "renov2_5_6", "renov2_5_7", "renov2_5_8", "renov2_5_9", "renov2_5_10",
+    "renov2_5_other",
+]
+target_vars = ["accom3", "accom5", "heat5a1_2", "accom4a3", "accom9a1_1", "accom9a1_2", "accom9a1_3", "accom9a1_4"] + _renov2_vars
 
 
 def extract_year(filepath: Path, year: int, target_vars: list,
