@@ -43,19 +43,21 @@ sheds_data_scripts/
   - In **2018 and 2019**, returning respondents who did not move were not asked `accom1` again (coded `-2` DNA). Their previous answer is carried forward into `accom1_filled`.
   - In **2020**, a small number of respondents have a missing `accom1`; these are also filled from the previous wave.
   - If a respondent reported a move (`accom_change == 1`), no fill is applied — the new value must be explicit.
-- **`sheds_identifier_history`** — selected target variables (e.g. `accom3`, `accom5`, `heat5a1_2`) across all waves in wide format.
+- **`sheds_identifier_history`** — selected target variables (e.g. `accom3`, `accom5`, `heat5a1_2`, `accom9a1_2`, `renov2_*`) across all waves in wide format. `accom9a1_2` and `renov2_*` are structural equivalents asked in different waves; for any given row one set is populated and the other is `NaN`.
 
 **Car history** is built via `build_car_history` in `utils.py` (Python) and equivalently in `utils.R` / `longitudinal_exploration.rmd` (R):
 - Returning car owners are only asked for their fuel type (`mob3_3`) if they changed their car (`mob3_change == 1`). Otherwise the previous answer is carried forward into `mob3_3_filled`.
 
 #### Accommodation Variables
 
-| Variable | Description | Codes |
-|----------|-------------|-------|
-| `id` | Respondent ID (consistent across waves) | — |
-| `accom1` | Accommodation type | 1 = Owner, 2 = Tenant, 3 = Cooperative |
-| `accom1_filled` | `accom1` with carry-forward applied | same as above |
-| `accom_change` | Respondent changed accommodation since last wave | 1 = yes, 0 = no |
+| Variable | Description | Codes | Years |
+|----------|-------------|-------|-------|
+| `id` | Respondent ID (consistent across waves) | — | all |
+| `accom1` | Accommodation type | 1 = Owner, 2 = Tenant, 3 = Cooperative | all |
+| `accom1_filled` | `accom1` with carry-forward applied | same as above | all |
+| `accom_change` | Respondent changed accommodation since last wave | 1 = yes, 0 = no | all |
+| `accom9a1_2` | Year of last heating system renovation in the building (single value) | year; -4 = no renovation since construction, -3 = took place but unknown when, -1 = don't know | 2017, 2018, 2019, 2023 |
+| `renov2_1_*` … `renov2_5_*` | Heating/warm water system renovation battery (structural equivalent of `accom9a1_2`); rows = renovation type (1 = burner replacement, 2 = renewal without energy source change, 3 = renewable energy complement, 4 = full replacement with energy source change, 5 = other), columns = time period (_0 = no renovation since construction, _1 = 2016–2020, …, _9 = don't know, _10 = 2021 added in 2021 wave) | 0 = no, 1 = yes, -2 = does not apply | 2020, 2021 |
 
 #### Car Variables
 
